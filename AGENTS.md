@@ -27,7 +27,8 @@ Stop a generated app with Cmd-Q, `kill <pid>`, or `osascript -e 'tell applicatio
 
 ## Issues
 
-- Work is tracked in the GitHub Project [Spacedock](https://github.com/users/lubelski/projects/3) (number 3, owner `lubelski`), whose items are issues on `lubelski/spacedock`. Use `gh issue list`, `gh issue view`, and `gh project item-list 3 --owner lubelski`. Add new issues to the project with `gh project item-add 3 --owner lubelski --url <issue url>`.
+- Work is tracked on a kanban board, the GitHub Project [Spacedock](https://github.com/users/lubelski/projects/3) (number 3, owner `lubelski`), also reachable from the repo's Projects tab. Columns: Todo, In Progress, Done. Items are issues on `lubelski/spacedock`.
+- Read with `gh issue list`, `gh issue view`, and `gh project item-list 3 --owner lubelski`. Add a new issue to the board with `gh project item-add 3 --owner lubelski --url <issue url>`, then set its Status with `gh project item-edit` (field `Status`, project id `PVT_kwHOAAL9Js4BqwVL`). Move the card when starting and finishing work.
 - Issues express intent and are written by or with the user. Record divergence in comments rather than rewriting intent.
 
 ## Working practices
