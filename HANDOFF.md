@@ -10,7 +10,7 @@ The idea came from a frustration with Tau (`~/dev/tau`): one app for many projec
 
 ## State
 
-No remote. Installed bundles: `~/Applications/Spacedock/{Tau,Hoard,Spacedock,Probe}.app`, registered in `~/Library/Application Support/Spacedock/projects.json`. `Probe` is a throwaway for the icon-refresh test (see `research/2026-11-08-install-and-quit.md`); remove it with `Spacedock remove probe`. `out/Tau.app` and `out/Hoard.app` are stale pre-rename bundles, gitignored, safe to delete.
+Remote: https://github.com/lubelski/spacedock (public, `main` tracks `origin/main`). Installed bundles: `~/Applications/Spacedock/{Tau,Hoard,Spacedock,Probe}.app`, registered in `~/Library/Application Support/Spacedock/projects.json`. `Probe` is a throwaway for the icon-refresh test (see `research/2026-11-08-install-and-quit.md`); remove it with `Spacedock remove probe`. `out/Tau.app` and `out/Hoard.app` are stale pre-rename bundles, gitignored, safe to delete.
 
 Session 2 (2026-11-08) added: install location and registry (`add`, `regenerate`, `list`, `remove`), `settings.json` for font, padding, cursor, scrollback, and graceful quit via Cmd-Q, AppleScript `quit`, and SIGTERM. Verified except the Dock icon refresh after regeneration, which the user still has to look at.
 
@@ -66,6 +66,8 @@ Should the open threads become sub-issues under ENG-239, or top-level issues in 
 - `Bundle.main.executableURL` is what `generate` copies. Running `generate` from a bundle copies that bundle's binary, which is fine, but a stale `out/` binary will not pick up new code until you rebuild and regenerate.
 
 ## Links
+
+- GitHub: https://github.com/lubelski/spacedock
 
 - Linear project: https://linear.app/interstellar-cafe/project/spacedock-91da3844ba79
 - ENG-239 (origin research ticket, now in Spacedock): https://linear.app/interstellar-cafe/issue/ENG-239
