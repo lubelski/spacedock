@@ -151,22 +151,62 @@ final class PrimeDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     let model = ProjectsModel()
     private var statusItem: NSStatusItem!
     private var panel: NSWindow?
+    private var settingsWindow: NSWindow?
+    // Separate draft model: refreshing projects must not overwrite unsaved settings.
+    private let settingsModel = ProjectsModel()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         statusItem.button?.image = NSImage(systemSymbolName: "square.grid.2x2", accessibilityDescription: "Spacedock")
-        let menu = NSMenu()
-        menu.delegate = self
-        statusItem.menu = menu
-        // `open ~/Applications/Spacedock.app --args --panel` opens the control panel.
-        if CommandLine.arguments.contains("--panel") { showPanel() }
+        statusItem.button?.target = self
+        statusItem.button?.action = #selector(statusItemClicked(_:))
+        statusItem.button?.sendAction(on: [.leftMouseUp, .rightMouseUp])
+        statusItem.button?.toolTip = "Spacedock — click to manage projects; right-click for quick actions"
+        let mainMenu = NSMenu()
+        let appItem = NSMenuItem()
+        let appMenu = NSMenu()
+        let settings = NSMenuItem(title: "Settings…", action: #selector(showSettings), keyEquivalent: ",")
+        settings.target = self
+        appMenu.addItem(settings)
+        appMenu.addItem(.separator())
+        appMenu.addItem(withTitle: "Quit Spacedock", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+        appItem.submenu = appMenu
+        mainMenu.addItem(appItem)
+        let editItem = NSMenuItem()
+        let editMenu = NSMenu(title: "Edit")
+        editMenu.addItem(withTitle: "Undo", action: Selector(("undo:")), keyEquivalent: "z")
+        editMenu.addItem(withTitle: "Redo", action: Selector(("redo:")), keyEquivalent: "Z")
+        editMenu.addItem(.separator())
+        editMenu.addItem(withTitle: "Cut", action: #selector(NSText.cut(_:)), keyEquivalent: "x")
+        editMenu.addItem(withTitle: "Copy", action: #selector(NSText.copy(_:)), keyEquivalent: "c")
+        editMenu.addItem(withTitle: "Paste", action: #selector(NSText.paste(_:)), keyEquivalent: "v")
+        editMenu.addItem(withTitle: "Select All", action: #selector(NSText.selectAll(_:)), keyEquivalent: "a")
+        editItem.submenu = editMenu
+        mainMenu.addItem(editItem)
+        NSApp.mainMenu = mainMenu
+        if CommandLine.arguments.contains("--settings") { showSettings() }
+        else if CommandLine.arguments.contains("--panel") { showPanel() }
     }
 
     /// Launching the app again (Finder, Spotlight, `open`) shows the panel.
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
         showPanel()
         return false
+    }
+
+    @objc private func statusItemClicked(_ sender: NSStatusBarButton) {
+        let event = NSApp.currentEvent
+        if event?.type == .rightMouseUp || event?.modifierFlags.intersection([.control, .option]).isEmpty == false {
+            let menu = NSMenu()
+            menu.delegate = self
+            // Attach only while tracking; a permanently attached menu consumes normal clicks.
+            statusItem.menu = menu
+            sender.performClick(nil)
+            statusItem.menu = nil
+        } else {
+            showPanel()
+        }
     }
 
     // Rebuilt every time the menu opens, so CLI changes to the registry show up.
@@ -184,9 +224,12 @@ final class PrimeDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             menu.addItem(item)
         }
         menu.addItem(.separator())
-        let open = NSMenuItem(title: "Control Panel…", action: #selector(showPanel), keyEquivalent: ",")
+        let open = NSMenuItem(title: "Manage Projects…", action: #selector(showPanel), keyEquivalent: "")
         open.target = self
         menu.addItem(open)
+        let settings = NSMenuItem(title: "Settings…", action: #selector(showSettings), keyEquivalent: ",")
+        settings.target = self
+        menu.addItem(settings)
         let regen = NSMenuItem(title: "Regenerate All", action: #selector(regenerateAll), keyEquivalent: "")
         regen.target = self
         menu.addItem(regen)
@@ -214,6 +257,28 @@ final class PrimeDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     @objc private func regenerateAll() { model.regenerateAll() }
 
+    @objc func showSettings() {
+        if settingsWindow == nil {
+            let w = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 560, height: 500),
+                             styleMask: [.titled, .closable, .resizable], backing: .buffered, defer: false)
+            w.title = "Spacedock Settings" + Profile.current.nameSuffix
+            w.isReleasedWhenClosed = false
+            w.setFrameAutosaveName("settings")
+            w.center()
+            settingsWindow = w
+        }
+        if settingsWindow?.isVisible != true {
+            settingsModel.reload()
+            settingsWindow?.contentViewController = NSHostingController(rootView: SettingsWindowView(model: settingsModel))
+        }
+        if Profile.current.launchesInBackground {
+            settingsWindow?.orderFront(nil)
+        } else {
+            NSApp.activate(ignoringOtherApps: true)
+            settingsWindow?.makeKeyAndOrderFront(nil)
+        }
+    }
+
     @objc func showPanel() {
         if panel == nil {
             let w = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 640, height: 480),
@@ -221,7 +286,7 @@ final class PrimeDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                              backing: .buffered, defer: false)
             w.title = "Spacedock" + Profile.current.nameSuffix
             w.isReleasedWhenClosed = false
-            w.contentViewController = NSHostingController(rootView: ControlPanelView(model: model))
+            w.contentViewController = NSHostingController(rootView: ControlPanelView(model: model, showSettings: { [weak self] in self?.showSettings() }))
             // Center on the screen that holds the menu bar the user clicked,
             // not whichever screen AppKit picks for a windowless app.
             if let screen = NSScreen.main ?? NSScreen.screens.first {
@@ -246,10 +311,17 @@ final class PrimeDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 struct ControlPanelView: View {
     @ObservedObject var model: ProjectsModel
 
+    var showSettings: () -> Void
+
     var body: some View {
-        TabView {
-            ProjectsTab(model: model).tabItem { Text("Projects") }
-            SettingsTab(model: model).tabItem { Text("Settings") }
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Text("Projects").font(.title2.bold())
+                Spacer()
+                Button("Settings…", action: showSettings)
+                    .keyboardShortcut(",", modifiers: .command)
+            }
+            ProjectsTab(model: model)
         }
         .padding()
         .frame(minWidth: 560, minHeight: 400)
@@ -471,7 +543,25 @@ struct AddProjectSheet: View {
     }
 }
 
-struct SettingsTab: View {
+struct SettingsWindowView: View {
+    @ObservedObject var model: ProjectsModel
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Global Settings").font(.title2.bold())
+            Text("Defaults for all projects. Project settings can override these values.")
+                .font(.callout).foregroundStyle(.secondary)
+            SettingsForm(model: model)
+            if let error = model.lastError {
+                Text(error).font(.callout).foregroundStyle(.red)
+            }
+        }
+        .padding(20)
+        .frame(minWidth: 520, minHeight: 460)
+    }
+}
+
+struct SettingsForm: View {
     @ObservedObject var model: ProjectsModel
     @State private var ghosttyText = ""
     @State private var ghosttyError: String?

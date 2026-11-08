@@ -21,7 +21,11 @@ open ~/Applications/Spacedock/Hoard.app
 
 The bundle's executable is a copy of the `Spacedock` binary. Its `Contents/Resources/project.json` holds the name, slug, color, and folder. The bundle is ad-hoc signed.
 
-`install` writes the prime app, `~/Applications/Spacedock.app`: a menu bar item that lists the projects, shows which are running, and launches or activates them. Open it again for the control panel, which adds and removes projects, restarts them, and edits settings.
+`install` writes the prime app, `~/Applications/Spacedock.app`. Click its menu bar icon to open the management window: a vertical project list with running status, Launch/Show, and per-project actions. Right-click, Control-click, or Option-click the icon for the quick-access menu. Opening the app again also shows project management.
+
+Choose **Settings…** (or press Cmd-,) for a separate global settings window. Project-specific overrides remain in each project's menu. Refreshing the project list does not discard unsaved global settings edits. Closing and reopening Settings reloads saved values.
+
+From a terminal, `open ~/Applications/Spacedock.app --args --panel` opens management on launch; `open ~/Applications/Spacedock.app --args --settings` opens settings on launch. Launch arguments apply when the app is not already running. The `set`, `set --global`, and `show` commands remain available for managing settings without the UI.
 
 Window settings (font, padding, cursor style, scrollback, emulator) are read from `~/Library/Application Support/Spacedock/settings.json`, written with defaults on first `add`. The emulator is libghostty by default; SwiftTerm remains as `emulator: swiftterm`. Any project can override those fields and add raw [Ghostty config](https://ghostty.org/docs/config/reference) keys:
 
