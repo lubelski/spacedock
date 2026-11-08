@@ -1,6 +1,6 @@
 # Spacedock
 
-Proof of concept for Tau [ENG-239](https://linear.app/interstellar-cafe/issue/ENG-239/research-one-macos-application-per-tau-project): one macOS application per project.
+One macOS application per project. Each project gets its own bundle id, icon, color, Dock tile, Cmd-Tab entry, and Space assignment, with a terminal inside.
 
 The question under test: if each project is its own `.app` bundle with its own bundle identifier, icon, and color, does macOS give us the Dock, Cmd-Tab, and Spaces behavior that a single shared app cannot? The first content of each project app is a terminal, so the experiment can be judged with real work.
 
@@ -10,14 +10,18 @@ The question under test: if each project is its own `.app` bundle with its own b
 swift build -c release
 ```
 
-## Generate a project app
+## Install a project app
 
 ```sh
-.build/release/Spacedock generate --name Tau --color "#D97706" --folder ~/dev/tau
-open "out/Tau.app"
+.build/release/Spacedock add --name Hoard --color "#0F766E" --folder ~/dev/hoard
+open ~/Applications/Spacedock/Hoard.app
 ```
 
-`generate` writes `out/<Name>.app`. The bundle's executable is a copy of the `Spacedock` binary. Its `Contents/Resources/project.json` holds the name, slug, color, and folder. The bundle is ad-hoc signed.
+`add` records the project in `~/Library/Application Support/Spacedock/projects.json` and installs `~/Applications/Spacedock/<Name>.app`. After a rebuild, `regenerate` rewrites every installed bundle. `list` and `remove <slug>` manage the registry. `generate --name ... [--out DIR]` writes an unregistered one-off bundle.
+
+The bundle's executable is a copy of the `Spacedock` binary. Its `Contents/Resources/project.json` holds the name, slug, color, and folder. The bundle is ad-hoc signed.
+
+Window settings (font, padding, cursor style, scrollback) are read from `~/Library/Application Support/Spacedock/settings.json`, written with defaults on first `add`.
 
 Run `.build/release/Spacedock` with no arguments to open the app outside a bundle with a default project.
 
@@ -25,6 +29,8 @@ Run `.build/release/Spacedock` with no arguments to open the app outside a bundl
 
 - `Sources/Spacedock/Project.swift`: the project definition and how the app reads it from its bundle.
 - `Sources/Spacedock/Generator.swift`: writes the bundle, Info.plist, and icon.
-- `Sources/Spacedock/App.swift`: the app delegate, window, menu, and terminal.
+- `Sources/Spacedock/Registry.swift`: the project list and install directory.
+- `Sources/Spacedock/Settings.swift`: window-layer settings.
+- `Sources/Spacedock/App.swift`: the app delegate, window, menu, terminal, and quit handling.
 - `Sources/Spacedock/main.swift`: argument dispatch.
 - `research/`: dated findings.
