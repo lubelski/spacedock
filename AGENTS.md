@@ -60,6 +60,7 @@ The CLI should let someone do everything from an agent or a terminal. The UI sho
 ## Working practices
 
 - Commit as you work. Small, coherent commits after meaningful milestones.
+- Do not ask the user to run a terminal command unless the agent literally cannot run it (an interactive login, a prompt that needs the user's password, a permission dialog). Run it yourself and report the result.
 - Store research in `research/`. Date findings, link sources, separate verified observations from inferences.
 - Keep the learning map in `.transient-learning-map/` current. It is gitignored.
 - Do not claim behavior was tested from documentation alone. Dock, Cmd-Tab, and Spaces behavior must be observed, by the agent where a screenshot can show it, or by the user where it is interactive.
