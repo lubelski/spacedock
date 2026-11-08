@@ -65,7 +65,20 @@ final class ProjectTitleBar: NSObject, NSToolbarDelegate {
             item.view = titleLabel
             item.visibilityPriority = .high
         case Self.badgeID:
-            item.view = BadgeView(text: project.displayName, color: project.color)
+            // The trailing inset matches the badge's gap from the top of the
+            // window, so the capsule's curve sits concentric with the
+            // window's rounded corner.
+            let badge = BadgeView(text: project.displayName, color: project.color)
+            let holder = NSView()
+            holder.translatesAutoresizingMaskIntoConstraints = false
+            holder.addSubview(badge)
+            NSLayoutConstraint.activate([
+                badge.leadingAnchor.constraint(equalTo: holder.leadingAnchor),
+                badge.trailingAnchor.constraint(equalTo: holder.trailingAnchor, constant: -6),
+                badge.topAnchor.constraint(equalTo: holder.topAnchor),
+                badge.bottomAnchor.constraint(equalTo: holder.bottomAnchor),
+            ])
+            item.view = holder
             item.visibilityPriority = .user
         default:
             return nil
@@ -74,7 +87,7 @@ final class ProjectTitleBar: NSObject, NSToolbarDelegate {
     }
 }
 
-/// A rounded pill in the project color holding the project name.
+/// A capsule in the project color holding the project name.
 final class BadgeView: NSView {
     private let label: NSTextField
 
@@ -83,8 +96,6 @@ final class BadgeView: NSView {
         super.init(frame: .zero)
         wantsLayer = true
         layer?.backgroundColor = color.cgColor
-        layer?.cornerRadius = 6
-        layer?.cornerCurve = .continuous
         label.font = .systemFont(ofSize: NSFont.systemFontSize, weight: .semibold)
         label.textColor = color.luminance > 0.6 ? .black : .white
         label.lineBreakMode = .byTruncatingTail
@@ -92,11 +103,17 @@ final class BadgeView: NSView {
         translatesAutoresizingMaskIntoConstraints = false
         addSubview(label)
         NSLayoutConstraint.activate([
-            label.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 10),
-            label.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -10),
+            label.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12),
+            label.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -12),
             label.topAnchor.constraint(equalTo: topAnchor, constant: 4),
             label.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -4),
         ])
+    }
+
+    /// Fully rounded ends at any height.
+    override func layout() {
+        super.layout()
+        layer?.cornerRadius = bounds.height / 2
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
