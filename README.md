@@ -23,9 +23,9 @@ The bundle's executable is a copy of the `Spacedock` binary. Its `Contents/Resou
 
 `install` writes the prime app, `~/Applications/Spacedock.app`. Click its menu bar icon to open the management window: a vertical project list with running status, Launch/Show, and per-project actions. Right-click, Control-click, or Option-click the icon for the quick-access menu. Opening the app again also shows project management.
 
-Choose **Settings…** (or press Cmd-,) for a separate global settings window. Project-specific overrides remain in each project's menu. Refreshing the project list does not discard unsaved global settings edits. Closing and reopening Settings reloads saved values.
+The gear in that window, **Settings…** in the menu, or Cmd-, opens a separate settings window in the System Settings style: a searchable sidebar of sections, one grouped form per section, and a Reset on any row that differs from its default. Changes save when a control commits; there is no Save button. Raw Ghostty keys are a key/value table. Project-specific overrides remain in each project's menu.
 
-From a terminal, `open ~/Applications/Spacedock.app --args --panel` opens management on launch; `open ~/Applications/Spacedock.app --args --settings` opens settings on launch. Launch arguments apply when the app is not already running. The `set`, `set --global`, and `show` commands remain available for managing settings without the UI.
+From a terminal, `open ~/Applications/Spacedock.app --args --panel` opens management on launch; `open ~/Applications/Spacedock.app --args --settings` opens settings on launch (`--settings-section ghostty` picks a section). Launch arguments apply when the app is not already running. The `set`, `set --global`, and `show` commands remain available for managing settings without the UI.
 
 Window settings (font, padding, cursor style, scrollback, emulator) are read from `~/Library/Application Support/Spacedock/settings.json`, written with defaults on first `add`. The emulator is libghostty by default; SwiftTerm remains as `emulator: swiftterm`. Any project can override those fields and add raw [Ghostty config](https://ghostty.org/docs/config/reference) keys:
 
@@ -52,6 +52,7 @@ Run `.build/release/Spacedock` with no arguments to open the app outside a bundl
 - `Sources/Spacedock/Settings.swift`: window-layer settings.
 - `Sources/Spacedock/Pane.swift`: the `TerminalPane` protocol and its SwiftTerm and libghostty implementations.
 - `Sources/Spacedock/App.swift`: the project app delegate, window, menu, terminal, and quit handling.
-- `Sources/Spacedock/Prime.swift`: the prime app, menu bar item, and control panel.
+- `Sources/Spacedock/Prime.swift`: the prime app, menu bar item, and project management window.
+- `Sources/Spacedock/SettingsWindow.swift`: the settings schema and the settings window.
 - `Sources/Spacedock/main.swift`: argument dispatch.
 - `research/`: dated findings.
