@@ -21,10 +21,10 @@
     {
       "identity" : "libghostty-spm",
       "kind" : "remoteSourceControl",
-      "location" : "https://github.com/lubelski/libghostty-spm.git",
+      "location" : "https://github.com/Lakr233/libghostty-spm.git",
       "state" : {
-        "branch" : "window-action-delegate",
-        "revision" : "15135a97f677d9cd95ada5137dcf279efdc5b48b"
+        "revision" : "1d84cf66fe29abd1f24f10b88dcfc25882cf68ee",
+        "version" : "2.2.2026110702"
       }
     },
     {

@@ -15,26 +15,12 @@ protocol TerminalPane: NSView {
     var onShellExit: (() -> Void)? { get set }
     var onTitle: ((String) -> Void)? { get set }
     var onDirectory: ((String) -> Void)? { get set }
-    /// A window-level request from the emulator's own keybindings: new
-    /// window, close, quit, fullscreen. Ghostty emits these for Cmd-N,
-    /// Cmd-Shift-W, Cmd-Q and friends; SwiftTerm never does.
-    var onWindowRequest: ((WindowRequest) -> Void)? { get set }
     /// Asks the emulator to run one of its own binding actions by name
     /// (Ghostty: `new_window`, `quit`, `copy_to_clipboard`, ...). Returns
     /// false when the emulator has no such action. Used by the
     /// `--binding-action` debug argument so agents can drive keybinding
     /// paths without a keyboard.
     func runBindingAction(_ name: String) -> Bool
-}
-
-enum WindowRequest {
-    case newWindow
-    case closeWindow
-    case quit
-    case toggleFullscreen
-    /// Tabs and splits do not exist yet; the window layer decides what to do.
-    case newTab
-    case newSplit
 }
 
 enum PaneFactory {
@@ -56,7 +42,6 @@ final class SwiftTermPane: NSView, TerminalPane, LocalProcessTerminalViewDelegat
     var onShellExit: (() -> Void)?
     var onTitle: ((String) -> Void)?
     var onDirectory: ((String) -> Void)?
-    var onWindowRequest: ((WindowRequest) -> Void)?
     let inner: LocalProcessTerminalView
 
     func runBindingAction(_ name: String) -> Bool { false }
@@ -107,12 +92,10 @@ final class SwiftTermPane: NSView, TerminalPane, LocalProcessTerminalViewDelegat
 /// The exec backend owns the pty. Closing the surface closes the pty, which
 /// hangs up the shell, so there is no pid to signal from here.
 final class GhosttyPane: AppTerminalView, TerminalPane,
-                         TerminalSurfaceTitleDelegate, TerminalSurfacePwdDelegate, TerminalSurfaceCloseDelegate,
-                         TerminalSurfaceWindowActionDelegate {
+                         TerminalSurfaceTitleDelegate, TerminalSurfacePwdDelegate, TerminalSurfaceCloseDelegate {
     var onShellExit: (() -> Void)?
     var onTitle: ((String) -> Void)?
     var onDirectory: ((String) -> Void)?
-    var onWindowRequest: ((WindowRequest) -> Void)?
     private var shellAlive = false
     private let ghosttyController: TerminalController
 
@@ -139,6 +122,16 @@ final class GhosttyPane: AppTerminalView, TerminalPane,
             b.withWindowPaddingY(Int(settings.padding))
             // Ghostty's scrollback is sized in bytes. ~200 bytes per line is generous.
             b.withCustom("scrollback-limit", String(settings.scrollback * 200))
+            // Window-level keys go to our menu bar. Ghostty's default macOS
+            // keybinds claim them (new_window, close_window, quit) and the
+            // view would swallow the key before AppKit reaches the menu;
+            // libghostty-spm gives the host no way to receive those actions.
+            // Unbound, the key falls through to the menu. super+w stays
+            // Ghostty's close_surface, which reaches terminalDidClose.
+            // Raw project keys below can rebind any of these.
+            for key in ["super+n", "super+shift+w", "super+q"] {
+                b.withCustom("keybind", "\(key)=unbind")
+            }
             // Raw keys last, so a project can override anything above.
             for (key, value) in settings.ghostty.sorted(by: { $0.key < $1.key }) {
                 b.withCustom(key, value)
@@ -147,8 +140,6 @@ final class GhosttyPane: AppTerminalView, TerminalPane,
         super.init(frame: frame)
         delegate = self
         controller = ghosttyController
-        // quit and close_all_windows are addressed to the app, not the surface.
-        ghosttyController.windowActionDelegate = self
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
@@ -174,19 +165,13 @@ final class GhosttyPane: AppTerminalView, TerminalPane,
     func terminalDidChangeTitle(_ title: String) { onTitle?(title) }
     func terminalDidChangeWorkingDirectory(_ path: String) { onDirectory?(path) }
 
-    func runBindingAction(_ name: String) -> Bool { performBindingAction(name) }
-
-    /// Ghostty's keybindings are the authority for shortcuts. The pane
-    /// forwards what it cannot do itself.
-    func terminalDidRequestWindowAction(_ action: TerminalWindowAction) {
-        switch action {
-        case .newWindow: onWindowRequest?(.newWindow)
-        case .newTab: onWindowRequest?(.newTab)
-        case .newSplit: onWindowRequest?(.newSplit)
-        case .closeWindow, .closeTab: onWindowRequest?(.closeWindow)
-        case .closeAllWindows, .quit: onWindowRequest?(.quit)
-        case .toggleFullscreen, .toggleMaximize: onWindowRequest?(.toggleFullscreen)
+    func runBindingAction(_ name: String) -> Bool {
+        // Debug: "dump-config" logs the config Ghostty loaded and any issue it reported.
+        if name == "dump-config" {
+            NSLog("Spacedock: ghostty config issue=\(ghosttyController.lastConfigurationIssue ?? "none")\n\(ghosttyController.renderedConfig)")
+            return true
         }
+        return performBindingAction(name)
     }
     func terminalDidClose(processAlive: Bool) {
         shellAlive = false

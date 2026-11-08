@@ -122,21 +122,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             guard let self, let terminal else { return }
             self.shellExited(terminal)
         }
-        // Requests arrive from the emulator's callback, often inside a
-        // main-queue block. Hop to the run loop first: terminate may answer
-        // terminateLater and spin a nested loop that cannot drain the queue
-        // it was called from (see installSignalHandlers).
-        terminal.onWindowRequest = { [weak self, weak window] request in
-            RunLoop.main.perform {
-                guard let self else { return }
-                switch request {
-                case .newWindow, .newTab, .newSplit: self.openTerminalWindow()
-                case .closeWindow: window?.performClose(nil)
-                case .quit: NSApp.terminate(nil)
-                case .toggleFullscreen: window?.toggleFullScreen(nil)
-                }
-            }
-        }
         container.addSubview(terminal)
 
         let shell = ProcessInfo.processInfo.environment["SHELL"] ?? "/bin/zsh"
