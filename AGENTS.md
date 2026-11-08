@@ -12,7 +12,8 @@ swift build -c release
 open ~/Applications/Spacedock/NAME.app
 .build/release/Spacedock install        # the prime app, ~/Applications/Spacedock.app
 .build/release/Spacedock regenerate     # after every rebuild: rewrites prime and all installed bundles
-.build/release/Spacedock list
+.build/release/Spacedock restart [SLUG ...]   # quit running apps, regenerate, relaunch them (prime too)
+.build/release/Spacedock list           # slug, color, running|stopped, folder, name
 .build/release/Spacedock remove SLUG
 ```
 

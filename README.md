@@ -17,7 +17,7 @@ swift build -c release
 open ~/Applications/Spacedock/Hoard.app
 ```
 
-`add` records the project in `~/Library/Application Support/Spacedock/projects.json` and installs `~/Applications/Spacedock/<Name>.app`. After a rebuild, `regenerate` rewrites every installed bundle. `list` and `remove <slug>` manage the registry. `generate --name ... [--out DIR]` writes an unregistered one-off bundle.
+`add` records the project in `~/Library/Application Support/Spacedock/projects.json` and installs `~/Applications/Spacedock/<Name>.app`. After a rebuild, `regenerate` rewrites every installed bundle, and `restart` quits the running apps, regenerates, and relaunches them. `list` and `remove <slug>` manage the registry. `generate --name ... [--out DIR]` writes an unregistered one-off bundle.
 
 The bundle's executable is a copy of the `Spacedock` binary. Its `Contents/Resources/project.json` holds the name, slug, color, and folder. The bundle is ad-hoc signed.
 

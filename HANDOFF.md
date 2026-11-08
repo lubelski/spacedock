@@ -12,6 +12,8 @@ The idea came from a frustration with single-window developer tools: one app for
 
 Remote: https://github.com/lubelski/spacedock (public, `main` tracks `origin/main`). Installed bundles: four under `~/Applications/Spacedock/` (run `Spacedock list`), registered in `~/Library/Application Support/Spacedock/projects.json`. `Probe` is a throwaway for the icon-refresh test (see `research/2026-11-08-install-and-quit.md`); remove it with `Spacedock remove probe`. `out/` holds stale pre-rename bundles, gitignored, safe to delete.
 
+Session 3 (2026-11-08) also added `Spacedock restart [SLUG ...]`: quit running project apps and the prime app through the Apple event, regenerate every bundle, relaunch what was running. Verified: one running project plus prime restarted with new pids in 0.93 s. `list` shows running state.
+
 Session 3 (2026-11-08) added the prime app (`Spacedock install`, `~/Applications/Spacedock.app`): menu bar item, control panel with project list, add form, settings form. Verified: runs as UIElement, panel renders with correct running state (screenshot). Not yet observed: whether activating a project from the menu switches to its Space (issue #8 comment).
 
 Session 2 (2026-11-08) added: install location and registry (`add`, `regenerate`, `list`, `remove`), `settings.json` for font, padding, cursor, scrollback, and graceful quit via Cmd-Q, AppleScript `quit`, and SIGTERM. Verified except the Dock icon refresh after regeneration, which the user still has to look at.
@@ -54,7 +56,7 @@ In the order the agent would take them. The user has not confirmed this order.
 5. Embedded browser: a WKWebView window per project for PR and ticket pages. Cookies live in the app's own WebKit container, so expect per-project login or a broker.
 6. Shared state and secrets across project apps. Keychain ACLs follow the designated requirement, which includes the bundle id, and ad-hoc signatures are each unique. Chrome's answer is one broker process that owns secrets. Not needed until a browser joins.
 7. Done: graceful quit.
-8. Binary updates: `regenerate` rewrites bundles but running apps keep the old binary. A `Spacedock restart` that quits, regenerates, and relaunches would close the loop.
+8. Done: `Spacedock restart`, and Restart per project in the control panel.
 
 ## Issue tracking
 
