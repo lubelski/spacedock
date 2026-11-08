@@ -1,6 +1,6 @@
 # Spacedock agent guidance
 
-Spacedock generates one macOS application per project, so the Dock, Cmd-Tab, and Spaces treat each project as its own app. Each generated app runs the Spacedock shell: a window in the project color holding a terminal, later a browser. A separate prime app, `~/Applications/Spacedock.app`, is a menu bar control panel for the project apps.
+Spacedock generates one macOS application per project, so the Dock, Cmd-Tab, and Spaces treat each project as its own app. Each generated app runs the Spacedock shell: a window holding a terminal, later a browser, with the project name in a badge of the project color at the right of its title bar. A separate prime app, `~/Applications/Spacedock.app`, is a menu bar control panel for the project apps.
 
 Read `HANDOFF.md` first in a new session, then `.transient-learning-map/orientation.md`.
 

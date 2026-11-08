@@ -88,18 +88,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             contentRect: NSRect(x: 0, y: 0, width: 900, height: 600),
             styleMask: [.titled, .closable, .miniaturizable, .resizable],
             backing: .buffered, defer: false)
-        window.title = project.displayName
-        window.subtitle = project.folderURL.path.replacingOccurrences(of: NSHomeDirectory(), with: "~")
+        let titleBar = ProjectTitleBar(project: project)
+        titleBar.install(on: window)
         window.delegate = self
         window.isReleasedWhenClosed = false
         window.setFrameAutosaveName("terminal-\(windows.count)")
 
-        // Tint: the title bar carries the project color. The terminal below
-        // keeps a dark, slightly tinted background so text stays readable.
+        // The title bar keeps the system window color; the project color
+        // appears in its trailing badge. The terminal keeps a dark, slightly
+        // tinted background so text stays readable.
         let background = project.color.blended(withFraction: 0.88, of: .black) ?? .black
-        window.titlebarAppearsTransparent = true
-        window.backgroundColor = project.color
-        window.appearance = NSAppearance(named: project.color.luminance > 0.6 ? .aqua : .darkAqua)
 
         // Padding: a container in the terminal background color, with the
         // terminal inset by `settings.padding` on every side. Ghostty pads
@@ -112,12 +110,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         let terminal = PaneFactory.make(settings: settings, project: project, background: background,
                                         frame: container.bounds.insetBy(dx: inset, dy: inset))
         terminal.autoresizingMask = [.width, .height]
-        terminal.onTitle = { [weak window] title in
-            if !title.isEmpty { window?.subtitle = title }
-        }
-        terminal.onDirectory = { [weak window] path in
-            window?.subtitle = path.replacingOccurrences(of: NSHomeDirectory(), with: "~")
-        }
+        // The pane holds the title bar strongly; the toolbar's delegate
+        // reference is weak.
+        terminal.onTitle = { title in titleBar.setTitle(title) }
         terminal.onShellExit = { [weak self, weak terminal] in
             guard let self, let terminal else { return }
             self.shellExited(terminal)
