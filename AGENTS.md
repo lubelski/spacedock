@@ -61,7 +61,12 @@ The CLI should let someone do everything from an agent or a terminal. The UI sho
 
 ## Working practices
 
-- Commit as you work. Small, coherent commits after meaningful milestones.
+- Work in a worktree under `.wt/` (for example, `.wt/<branch>/`), not in the primary checkout. The primary checkout stays on `main`.
+- Commit and push as you work. Small, coherent commits after meaningful milestones.
+- Open a pull request when the work is ready for review. Do not merge without the user's authorization.
+- Every PR follows `.github/pull_request_template.md`: Overview, Visual Preview, Changes, Notes, in that order. The `pull-request` skill (`.claude/skills/pull-request/SKILL.md`) walks through opening and updating one.
+- Put screenshots, recordings, or other concrete evidence in Visual Preview. Upload images with `gh pr create|edit|comment --attach <file>#<alt text>` and reference the file by the same path in the body. The CLI rewrites the path to the uploaded asset. Do not commit screenshots to the repo. UI changes should show the affected window, before and after where useful. Nonvisual changes should include test output, logs, or a reproducible example instead.
+- Evidence must come from the actual change, with enough context to interpret it. Capture profile apps, never the user's installed apps or desktop. Label mocks and unverified behavior. Never substitute a proposed design for a screenshot of working UI. If visual capture is unavailable, say why, give the alternative evidence, and name the remaining verification gap.
 - Do not ask the user to run a terminal command unless the agent literally cannot run it (an interactive login, a prompt that needs the user's password, a permission dialog). Run it yourself and report the result.
 - Store research in `research/`. Date findings, link sources, separate verified observations from inferences.
 - Keep the learning map in `.transient-learning-map/` current. It is gitignored.
