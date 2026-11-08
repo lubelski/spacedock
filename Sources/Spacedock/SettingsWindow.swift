@@ -337,14 +337,12 @@ struct SettingRow: View {
 }
 
 extension View {
-    /// Window title and section name, centered in the unified title bar.
+    /// "Spacedock Settings", centered in the unified title bar. One row, no
+    /// section name, no profile suffix.
     func settingsTitle(_ subtitle: String) -> some View {
         toolbar {
             ToolbarItem(placement: .principal) {
-                VStack(spacing: 1) {
-                    Text("Spacedock Settings" + Profile.current.nameSuffix).font(.headline)
-                    Text(subtitle).font(.subheadline).foregroundStyle(.secondary)
-                }
+                Text("Spacedock Settings").font(.title3.weight(.semibold))
             }
         }
     }
