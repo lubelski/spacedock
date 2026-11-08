@@ -53,6 +53,7 @@ enum Generator {
             "LSMinimumSystemVersion": "14.0",
             "NSHighResolutionCapable": true,
             "NSPrincipalClass": "NSApplication",
+            "NSAppleScriptEnabled": true,
         ]
         let plistData = try PropertyListSerialization.data(fromPropertyList: plist, format: .xml, options: 0)
         try plistData.write(to: contents.appendingPathComponent("Info.plist"))

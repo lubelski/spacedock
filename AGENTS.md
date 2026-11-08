@@ -8,15 +8,22 @@ Read `HANDOFF.md` first in a new session, then `.transient-learning-map/orientat
 
 ```sh
 swift build -c release
-.build/release/Spacedock generate --name NAME --color "#RRGGBB" --folder PATH [--out DIR]
-open "out/NAME.app"
+.build/release/Spacedock add --name NAME --color "#RRGGBB" --folder PATH
+open ~/Applications/Spacedock/NAME.app
+.build/release/Spacedock regenerate     # after every rebuild: rewrites all installed bundles
+.build/release/Spacedock list
+.build/release/Spacedock remove SLUG
 ```
 
-`generate` writes `DIR/NAME.app` (default `out/`). The executable is a copy of the Spacedock binary. `Contents/Resources/project.json` holds name, slug, color, and folder. Bundle id is `dev.lubelski.spacedock.<slug>`. The bundle is ad-hoc signed.
+`add` records the project in `~/Library/Application Support/Spacedock/projects.json` and installs `~/Applications/Spacedock/NAME.app`. `regenerate` rebuilds every registered bundle from the current binary. `generate --name ... [--out DIR]` still writes an unregistered one-off bundle (default `out/`).
+
+The executable is a copy of the Spacedock binary. `Contents/Resources/project.json` holds name, slug, color, and folder. Bundle id is `dev.lubelski.spacedock.<slug>`. The bundle is ad-hoc signed.
+
+Window settings (font, padding, cursor style, scrollback) are read at launch from `~/Library/Application Support/Spacedock/settings.json`, written with defaults on first `add`.
 
 Run `.build/release/Spacedock` with no arguments to open the shell outside a bundle with a default project.
 
-Stop a generated app with Cmd-Q or `kill <pid>`. It does not respond to AppleScript `quit`.
+Stop a generated app with Cmd-Q, `kill <pid>`, or `osascript -e 'tell application id "dev.lubelski.spacedock.SLUG" to quit'`. All three send SIGHUP to the shells and wait up to 2 s.
 
 ## Linear
 

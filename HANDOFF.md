@@ -1,6 +1,6 @@
 # Handoff
 
-Written 2026-11-08 at the end of the first session. Read this, then `AGENTS.md`, then `.transient-learning-map/orientation.md`.
+Written 2026-11-08 at the end of the first session, updated the same day after the second. Read this, then `AGENTS.md`, then `.transient-learning-map/orientation.md`.
 
 ## What this is
 
@@ -10,7 +10,9 @@ The idea came from a frustration with Tau (`~/dev/tau`): one app for many projec
 
 ## State
 
-Three commits on `main`, no remote. Nothing is running. The old `~/dev/project-shell/out/` bundles were killed and the directory no longer exists after the rename to `~/dev/spacedock`.
+No remote. Installed bundles: `~/Applications/Spacedock/{Tau,Hoard,Spacedock,Probe}.app`, registered in `~/Library/Application Support/Spacedock/projects.json`. `Probe` is a throwaway for the icon-refresh test (see `research/2026-11-08-install-and-quit.md`); remove it with `Spacedock remove probe`. `out/Tau.app` and `out/Hoard.app` are stale pre-rename bundles, gitignored, safe to delete.
+
+Session 2 (2026-11-08) added: install location and registry (`add`, `regenerate`, `list`, `remove`), `settings.json` for font, padding, cursor, scrollback, and graceful quit via Cmd-Q, AppleScript `quit`, and SIGTERM. Verified except the Dock icon refresh after regeneration, which the user still has to look at.
 
 Verified on 2026-11-08 (macOS 26, Xcode 27.2, Swift 6.4.2, SwiftTerm 1.99.3):
 
@@ -26,8 +28,10 @@ Details: `research/2026-11-08-first-launch.md`.
 
 - `Sources/Spacedock/Project.swift`: the project definition, read from `project.json` in the bundle. `bundleIDPrefix = "dev.lubelski.spacedock"`.
 - `Sources/Spacedock/Generator.swift`: writes the bundle (Info.plist, PkgInfo, copied executable, `project.json`, icns via `iconutil`, `codesign --sign -`).
-- `Sources/Spacedock/App.swift`: `AppDelegate`, one window per terminal, main menu, SwiftTerm `LocalProcessTerminalView`.
-- `Sources/Spacedock/main.swift`: `generate` subcommand or run as app.
+- `Sources/Spacedock/Registry.swift`: `projects.json` under `~/Library/Application Support/Spacedock/`, install directory `~/Applications/Spacedock/`.
+- `Sources/Spacedock/Settings.swift`: `settings.json` next to the registry. Font, padding, cursor style, scrollback. Defaults: system mono 13, 8 pt, blinking bar, 10000 lines.
+- `Sources/Spacedock/App.swift`: `AppDelegate`, one window per terminal with a padded container, main menu, graceful quit (SIGHUP to shells, 2 s SIGKILL fallback), SIGTERM handler.
+- `Sources/Spacedock/main.swift`: `add`, `regenerate`, `list`, `remove`, `generate` subcommands, or run as app.
 
 ## Decisions so far
 
@@ -40,13 +44,14 @@ Details: `research/2026-11-08-first-launch.md`.
 
 In the order the agent would take them. The user has not confirmed this order.
 
-1. Stable install location, candidate `~/Applications/Spacedock/`, and a registry (`projects.json`) so every bundle can be regenerated after a binary update.
-2. Regenerate in place and confirm the Dock icon refreshes rather than serving a cached icon.
-3. Window layer as settings: splits (`NSSplitView`), padding (container view with insets), cursor style (`TerminalOptions.cursorStyle`, blinking bar wanted), font. Scrollback above SwiftTerm's default of 500.
+1. Done: install location and registry.
+2. Done except the observation: regenerate in place and confirm the Dock icon refreshes. Probe.app is set up for the user to look at.
+3. Done except splits (`NSSplitView`): padding, cursor style, font, and scrollback are settings.
 4. libghostty spike. Try `rijieli/libghostty-spm` at tag `ghostty-1.4.0` (pinned to stable Ghostty) or `Lakr233/libghostty-spm` (tracks main weekly). Both wrap the internal embedder API that upstream says will change. Upstream `libghostty-vt` 1.0.0 is parsing and state only, no renderer. A first-party Swift Metal renderer was announced by Mitchell Hashimoto as coming soon, not released as of this search.
 5. Embedded browser: a WKWebView window per project for PR and ticket pages. Cookies live in the app's own WebKit container, so expect per-project login or a broker.
 6. Shared state and secrets across project apps. Keychain ACLs follow the designated requirement, which includes the bundle id, and ad-hoc signatures are each unique. Chrome's answer is one broker process that owns secrets. Not needed until a browser or Tau session joins.
-7. Graceful quit: respond to AppleScript `quit` and SIGTERM, closing shells cleanly.
+7. Done: graceful quit.
+8. Binary updates: `regenerate` rewrites bundles but running apps keep the old binary. A `Spacedock restart` that quits, regenerates, and relaunches would close the loop.
 
 ## Pending question for the user
 
@@ -56,7 +61,8 @@ Should the open threads become sub-issues under ENG-239, or top-level issues in 
 
 - The bundle id prefix changed from `dev.lubelski.projectshell` to `dev.lubelski.spacedock` in the rename commit. Space assignments made against the old ids do not carry over.
 - `out/` and `.transient-learning-map/` are gitignored. The learning map was gitignored without asking the user first, which the user's global instructions say to do. Raise it if it matters.
-- Generated apps ignore AppleScript `quit`. Use Cmd-Q or `kill`.
+- Do not call `NSApp.terminate` from inside a `DispatchSource` handler. `terminateLater` spins a nested run loop that cannot drain the main dispatch queue while a main-queue block is on the stack. `App.swift` defers through `RunLoop.main.perform`.
+- Interactive zsh ignores SIGTERM. Quit sends SIGHUP.
 - `Bundle.main.executableURL` is what `generate` copies. Running `generate` from a bundle copies that bundle's binary, which is fine, but a stale `out/` binary will not pick up new code until you rebuild and regenerate.
 
 ## Links
