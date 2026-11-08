@@ -10,6 +10,8 @@ The idea came from a frustration with single-window developer tools: one app for
 
 ## State
 
+Session 4 (2026-11-08) on branch `management-window` (worktree `.wt/management-window`, issue #12): the control panel is now two windows. Primary menu bar click opens project management (vertical list, gear); the gear or Cmd-, opens Settings, rebuilt in the System Settings style after the user rejected a VS Code-styled first pass. `SettingsWindow.swift` holds a `SettingSpec` schema that drives rows, search, sidebar, and reset; Ghostty keys are a key/value `Table`. Verified by window-id screenshots on profile `management-ui`; no clicks (Accessibility denied). Not merged. See `research/2026-11-08-management-settings.md`.
+
 Remote: https://github.com/lubelski/spacedock (public, `main` tracks `origin/main`). Installed bundles: four under `~/Applications/Spacedock/` (run `Spacedock list`), registered in `~/Library/Application Support/Spacedock/projects.json`. `Probe` is a throwaway for the icon-refresh test (see `research/2026-11-08-install-and-quit.md`); remove it with `Spacedock remove probe`. `out/` holds stale pre-rename bundles, gitignored, safe to delete.
 
 Session 3 (2026-11-08), later: the user chose the unbind route over the fork. `GhosttyPane` unbinds `super+n`, `super+shift+w`, `super+q` so the menu bar handles them; `Package.swift` is back on upstream `Lakr233/libghostty-spm`. The fork and its PR 1 stay as a parked reference. Verified by real key events (`scripts/keypost.swift`, CGEvent posted to the pid while the app was frontmost): Cmd-N opened a second window, Cmd-W closed one, Cmd-Q quit with no orphan shells.

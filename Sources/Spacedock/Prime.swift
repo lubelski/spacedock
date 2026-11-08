@@ -151,22 +151,62 @@ final class PrimeDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     let model = ProjectsModel()
     private var statusItem: NSStatusItem!
     private var panel: NSWindow?
+    private var settingsWindow: NSWindow?
+    // Separate draft model: refreshing projects must not overwrite unsaved settings.
+    private let settingsModel = ProjectsModel()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         statusItem.button?.image = NSImage(systemSymbolName: "square.grid.2x2", accessibilityDescription: "Spacedock")
-        let menu = NSMenu()
-        menu.delegate = self
-        statusItem.menu = menu
-        // `open ~/Applications/Spacedock.app --args --panel` opens the control panel.
-        if CommandLine.arguments.contains("--panel") { showPanel() }
+        statusItem.button?.target = self
+        statusItem.button?.action = #selector(statusItemClicked(_:))
+        statusItem.button?.sendAction(on: [.leftMouseUp, .rightMouseUp])
+        statusItem.button?.toolTip = "Spacedock — click to manage projects; right-click for quick actions"
+        let mainMenu = NSMenu()
+        let appItem = NSMenuItem()
+        let appMenu = NSMenu()
+        let settings = NSMenuItem(title: "Settings…", action: #selector(showSettings), keyEquivalent: ",")
+        settings.target = self
+        appMenu.addItem(settings)
+        appMenu.addItem(.separator())
+        appMenu.addItem(withTitle: "Quit Spacedock", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+        appItem.submenu = appMenu
+        mainMenu.addItem(appItem)
+        let editItem = NSMenuItem()
+        let editMenu = NSMenu(title: "Edit")
+        editMenu.addItem(withTitle: "Undo", action: Selector(("undo:")), keyEquivalent: "z")
+        editMenu.addItem(withTitle: "Redo", action: Selector(("redo:")), keyEquivalent: "Z")
+        editMenu.addItem(.separator())
+        editMenu.addItem(withTitle: "Cut", action: #selector(NSText.cut(_:)), keyEquivalent: "x")
+        editMenu.addItem(withTitle: "Copy", action: #selector(NSText.copy(_:)), keyEquivalent: "c")
+        editMenu.addItem(withTitle: "Paste", action: #selector(NSText.paste(_:)), keyEquivalent: "v")
+        editMenu.addItem(withTitle: "Select All", action: #selector(NSText.selectAll(_:)), keyEquivalent: "a")
+        editItem.submenu = editMenu
+        mainMenu.addItem(editItem)
+        NSApp.mainMenu = mainMenu
+        if CommandLine.arguments.contains(where: { $0.hasPrefix("--settings") }) { showSettings() }
+        else if CommandLine.arguments.contains("--panel") { showPanel() }
     }
 
     /// Launching the app again (Finder, Spotlight, `open`) shows the panel.
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
         showPanel()
         return false
+    }
+
+    @objc private func statusItemClicked(_ sender: NSStatusBarButton) {
+        let event = NSApp.currentEvent
+        if event?.type == .rightMouseUp || event?.modifierFlags.intersection([.control, .option]).isEmpty == false {
+            let menu = NSMenu()
+            menu.delegate = self
+            // Attach only while tracking; a permanently attached menu consumes normal clicks.
+            statusItem.menu = menu
+            sender.performClick(nil)
+            statusItem.menu = nil
+        } else {
+            showPanel()
+        }
     }
 
     // Rebuilt every time the menu opens, so CLI changes to the registry show up.
@@ -184,9 +224,12 @@ final class PrimeDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             menu.addItem(item)
         }
         menu.addItem(.separator())
-        let open = NSMenuItem(title: "Control Panel…", action: #selector(showPanel), keyEquivalent: ",")
+        let open = NSMenuItem(title: "Manage Projects…", action: #selector(showPanel), keyEquivalent: "")
         open.target = self
         menu.addItem(open)
+        let settings = NSMenuItem(title: "Settings…", action: #selector(showSettings), keyEquivalent: ",")
+        settings.target = self
+        menu.addItem(settings)
         let regen = NSMenuItem(title: "Regenerate All", action: #selector(regenerateAll), keyEquivalent: "")
         regen.target = self
         menu.addItem(regen)
@@ -214,14 +257,42 @@ final class PrimeDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     @objc private func regenerateAll() { model.regenerateAll() }
 
+    @objc func showSettings() {
+        if settingsWindow == nil {
+            let w = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 760, height: 520),
+                             styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
+            w.title = "Spacedock Settings" + Profile.current.nameSuffix
+            // An empty toolbar keeps the tall unified title bar; the sidebar
+            // toggle is removed. The title is drawn centered by the view as a
+            // principal toolbar item, so AppKit's leading title is hidden.
+            w.toolbar = NSToolbar(identifier: "settings")
+            w.toolbarStyle = .unified
+            w.titleVisibility = .hidden
+            w.isReleasedWhenClosed = false
+            w.setFrameAutosaveName("settings")
+            w.center()
+            settingsWindow = w
+        }
+        if settingsWindow?.isVisible != true {
+            settingsModel.reload()
+            settingsWindow?.contentViewController = NSHostingController(rootView: SettingsWindowView(model: settingsModel))
+        }
+        if Profile.current.launchesInBackground {
+            settingsWindow?.orderFront(nil)
+        } else {
+            NSApp.activate(ignoringOtherApps: true)
+            settingsWindow?.makeKeyAndOrderFront(nil)
+        }
+    }
+
     @objc func showPanel() {
         if panel == nil {
-            let w = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 640, height: 480),
+            let w = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 520, height: 560),
                              styleMask: [.titled, .closable, .miniaturizable, .resizable],
                              backing: .buffered, defer: false)
             w.title = "Spacedock" + Profile.current.nameSuffix
             w.isReleasedWhenClosed = false
-            w.contentViewController = NSHostingController(rootView: ControlPanelView(model: model))
+            w.contentViewController = NSHostingController(rootView: ControlPanelView(model: model, showSettings: { [weak self] in self?.showSettings() }))
             // Center on the screen that holds the menu bar the user clicked,
             // not whichever screen AppKit picks for a windowless app.
             if let screen = NSScreen.main ?? NSScreen.screens.first {
@@ -241,57 +312,79 @@ final class PrimeDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 }
 
-// MARK: - Control panel
+// MARK: - Project management
 
+/// A vertical list of projects with running state and per-project actions.
+/// The gear opens the separate settings window; nothing about shared
+/// settings lives here.
 struct ControlPanelView: View {
-    @ObservedObject var model: ProjectsModel
-
-    var body: some View {
-        TabView {
-            ProjectsTab(model: model).tabItem { Text("Projects") }
-            SettingsTab(model: model).tabItem { Text("Settings") }
-        }
-        .padding()
-        .frame(minWidth: 560, minHeight: 400)
-        .overlay(alignment: .bottom) {
-            if let err = model.lastError {
-                HStack {
-                    Text(err).font(.callout).foregroundStyle(.red).lineLimit(2)
-                    Spacer()
-                    Button("Dismiss") { model.lastError = nil }
-                }
-                .padding(8)
-                .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 8))
-                .padding()
-            }
-        }
-    }
-}
-
-struct ProjectsTab: View {
     @ObservedObject var model: ProjectsModel
     @State private var adding = false
 
+    var showSettings: () -> Void
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            if model.registry.projects.isEmpty {
-                Text("No projects yet.").foregroundStyle(.secondary)
+        VStack(spacing: 0) {
+            HStack(spacing: 10) {
+                Text("Projects").font(.title2.bold())
+                Text("\(model.registry.projects.count)")
+                    .font(.callout.monospacedDigit()).foregroundStyle(.secondary)
                 Spacer()
+                Button { adding = true } label: { Label("Add Project", systemImage: "plus") }
+                    .keyboardShortcut("n", modifiers: .command)
+                    .help("Register a project and install its app")
+                Menu {
+                    Button("Regenerate All") { model.regenerateAll() }
+                        .help("Rewrite every bundle from the installed binary. Running apps pick it up on restart.")
+                    Button("Refresh") { model.reload() }.keyboardShortcut("r", modifiers: .command)
+                    Divider()
+                    Button("Reveal Apps in Finder") {
+                        NSWorkspace.shared.activateFileViewerSelecting([Registry.installDirectory])
+                    }
+                } label: { Image(systemName: "ellipsis.circle") }
+                .menuStyle(.borderlessButton).frame(width: 28)
+                Button(action: showSettings) { Image(systemName: "gearshape") }
+                    .keyboardShortcut(",", modifiers: .command)
+                    .help("Settings")
+            }
+            .padding(16)
+
+            Divider()
+
+            if model.registry.projects.isEmpty {
+                VStack(spacing: 10) {
+                    Image(systemName: "square.grid.2x2").font(.system(size: 36)).foregroundStyle(.tertiary)
+                    Text("No projects yet").font(.headline)
+                    Text("Each project becomes its own app with a Dock tile, a Cmd-Tab entry, and a Space.")
+                        .font(.callout).foregroundStyle(.secondary).multilineTextAlignment(.center)
+                    Button("Add Project…") { adding = true }.padding(.top, 4)
+                }
+                .frame(maxWidth: 320, maxHeight: .infinity)
+                .frame(maxWidth: .infinity)
             } else {
                 List(model.registry.projects, id: \.slug) { p in
                     ProjectRow(model: model, project: p)
+                        .listRowSeparator(.visible)
                 }
-            }
-            HStack {
-                Button("Add Project…") { adding = true }
-                Button("Regenerate All") { model.regenerateAll() }
-                    .help("Rewrite every bundle from the installed binary. Running apps pick it up on restart.")
-                Spacer()
-                Button("Refresh") { model.reload() }
+                .listStyle(.inset)
+                .scrollContentBackground(.hidden)
             }
         }
-        .padding(.top, 8)
+        .frame(minWidth: 460, minHeight: 360)
         .sheet(isPresented: $adding) { AddProjectSheet(model: model) }
+        .overlay(alignment: .bottom) {
+            if let err = model.lastError {
+                HStack {
+                    Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
+                    Text(err).font(.callout).lineLimit(2)
+                    Spacer()
+                    Button("Dismiss") { model.lastError = nil }.controlSize(.small)
+                }
+                .padding(10)
+                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
+                .padding(12)
+            }
+        }
     }
 }
 
@@ -300,35 +393,50 @@ struct ProjectRow: View {
     let project: Project
     @State private var editing = false
 
+    private var running: Bool { model.isRunning(project) }
+
     var body: some View {
         HStack(spacing: 12) {
-            Circle().fill(Color(nsColor: project.color)).frame(width: 14, height: 14)
-                .overlay(Circle().stroke(Color.primary.opacity(0.2)))
-            VStack(alignment: .leading) {
+            ZStack {
+                Circle().fill(Color(nsColor: project.color)).frame(width: 16, height: 16)
+                    .overlay(Circle().stroke(Color.primary.opacity(0.15)))
+                if running {
+                    Circle().fill(.white).frame(width: 5, height: 5)
+                }
+            }
+            .help(running ? "Running" : "Stopped")
+            VStack(alignment: .leading, spacing: 2) {
                 Text(project.name).font(.headline)
                 Text(project.folder.replacingOccurrences(of: NSHomeDirectory(), with: "~"))
-                    .font(.caption).foregroundStyle(.secondary)
+                    .font(.caption).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
             }
             Spacer()
-            Text(model.isRunning(project) ? "running" : "stopped")
-                .font(.caption).foregroundStyle(model.isRunning(project) ? .green : .secondary)
-            Button(model.isRunning(project) ? "Show" : "Launch") { model.open(project) }
+            Text(running ? "Running" : "Stopped")
+                .font(.caption.weight(.medium))
+                .foregroundStyle(running ? Color.green : Color.secondary)
+                .padding(.horizontal, 7).padding(.vertical, 2)
+                .background((running ? Color.green : Color.secondary).opacity(0.12), in: Capsule())
+            Button(running ? "Show" : "Launch") { model.open(project) }
+                .frame(width: 64)
             Menu {
                 Button("Project Settings…") { editing = true }
                 Divider()
                 Button("Restart") { model.restart(project) }
-                Button("Quit") { model.quit(project) }.disabled(!model.isRunning(project))
+                Button("Quit") { model.quit(project) }.disabled(!running)
                 Button("Regenerate") { model.regenerate(project) }
                 Divider()
                 Button("Reveal in Finder") {
                     NSWorkspace.shared.activateFileViewerSelecting([Registry.appURL(for: project)])
+                }
+                Button("Open Folder in Finder") {
+                    NSWorkspace.shared.open(URL(fileURLWithPath: project.folder))
                 }
                 Divider()
                 Button("Remove", role: .destructive) { model.remove(project) }
             } label: { Image(systemName: "ellipsis.circle") }
             .menuStyle(.borderlessButton).frame(width: 28)
         }
-        .padding(.vertical, 4)
+        .padding(.vertical, 6)
         .sheet(isPresented: $editing) { ProjectSettingsSheet(model: model, project: project) }
     }
 }
@@ -468,62 +576,6 @@ struct AddProjectSheet: View {
         }
         .padding()
         .frame(width: 420)
-    }
-}
-
-struct SettingsTab: View {
-    @ObservedObject var model: ProjectsModel
-    @State private var ghosttyText = ""
-    @State private var ghosttyError: String?
-
-    private func double(_ key: WritableKeyPath<Settings, CGFloat>) -> Binding<Double> {
-        Binding(get: { Double(model.settings[keyPath: key]) },
-                set: { model.settings[keyPath: key] = CGFloat($0) })
-    }
-
-    private let cursorStyles = ["blinkBar", "steadyBar", "blinkBlock", "steadyBlock", "blinkUnderline", "steadyUnderline"]
-
-    var body: some View {
-        Form {
-            TextField("Font name", text: Binding(
-                get: { model.settings.fontName ?? "" },
-                set: { model.settings.fontName = $0.isEmpty ? nil : $0 }))
-                .help("Empty uses the system monospaced font.")
-            TextField("Font size", value: double(\.fontSize), format: .number)
-            TextField("Padding (pt)", value: double(\.padding), format: .number)
-            Picker("Cursor", selection: $model.settings.cursorStyle) {
-                ForEach(cursorStyles, id: \.self) { Text($0).tag($0) }
-            }
-            TextField("Scrollback (lines)", value: $model.settings.scrollback, formatter: NumberFormatter())
-            Picker("Emulator", selection: $model.settings.emulator) {
-                Text("ghostty").tag("ghostty")
-                Text("swiftterm (compatibility)").tag("swiftterm")
-            }
-            Text("Ghostty options, one `key = value` per line. Projects can override these.")
-                .font(.caption).foregroundStyle(.secondary)
-            TextEditor(text: $ghosttyText)
-                .font(.system(.body, design: .monospaced))
-                .frame(minHeight: 80)
-                .border(Color.secondary.opacity(0.3))
-            if let ghosttyError { Text(ghosttyError).font(.callout).foregroundStyle(.red) }
-            Text("Project apps read settings when they launch. Restart one to apply.")
-                .font(.caption).foregroundStyle(.secondary)
-            HStack {
-                Spacer()
-                Button("Revert") { model.settings = Settings.load(); ghosttyText = GhosttyKeyText.render(model.settings.ghostty) }
-                Button("Save") {
-                    switch GhosttyKeyText.parse(ghosttyText) {
-                    case .failure(let e): ghosttyError = e
-                    case .success(let map):
-                        ghosttyError = nil
-                        model.settings.ghostty = map
-                        model.saveSettings()
-                    }
-                }.keyboardShortcut(.defaultAction)
-            }
-        }
-        .padding(.top, 8)
-        .onAppear { ghosttyText = GhosttyKeyText.render(model.settings.ghostty) }
     }
 }
 
