@@ -12,6 +12,8 @@ The idea came from a frustration with single-window developer tools: one app for
 
 Remote: https://github.com/lubelski/spacedock (public, `main` tracks `origin/main`). Installed bundles: four under `~/Applications/Spacedock/` (run `Spacedock list`), registered in `~/Library/Application Support/Spacedock/projects.json`. `Probe` is a throwaway for the icon-refresh test (see `research/2026-11-08-install-and-quit.md`); remove it with `Spacedock remove probe`. `out/` holds stale pre-rename bundles, gitignored, safe to delete.
 
+Session 3 (2026-11-08) made libghostty the default (user decision) and added per-project overrides: `Project.settings` (a `SettingsOverride`, all fields optional) and `Project.ghostty` (raw keys), plus `Settings.ghostty` globally. `set`, `set --global`, `show` on the CLI; a Project Settings sheet and a global Ghostty editor in the panel. Apps merge overrides from the registry at launch. Verified: `set hoard ghostty.font-size=20` then relaunch grew the text. Not verified: `cursor-color` override did not visibly change the cursor (cause unknown; the package theme sets no cursor keys), and the panel sheets were not exercised by click.
+
 Session 3 (2026-11-08) also ran the libghostty spike (`research/2026-11-08-libghostty-spike.md`). `Pane.swift` holds a `TerminalPane` protocol with SwiftTerm and libghostty (Lakr233/libghostty-spm) implementations. `settings.json` `emulator` picks one; default `swiftterm`. A ghostty-backed project app was generated, launched, screenshotted, and quit cleanly. Open: which emulator should be the default, and the ghostty pane's copy, paste, and font behavior.
 
 Session 3 (2026-11-08) also added `Spacedock restart [SLUG ...]`: quit running project apps and the prime app through the Apple event, regenerate every bundle, relaunch what was running. Verified: one running project plus prime restarted with new pids in 0.93 s. `list` shows running state.
@@ -35,7 +37,7 @@ Details: `research/2026-11-08-first-launch.md`.
 - `Sources/Spacedock/Project.swift`: the project definition, read from `project.json` in the bundle. `bundleIDPrefix = "dev.lubelski.spacedock"`.
 - `Sources/Spacedock/Generator.swift`: writes the bundle (Info.plist, PkgInfo, copied executable, `project.json`, icns via `iconutil`, `codesign --sign -`).
 - `Sources/Spacedock/Registry.swift`: `projects.json` under `~/Library/Application Support/Spacedock/`, install directory `~/Applications/Spacedock/`.
-- `Sources/Spacedock/Settings.swift`: `settings.json` next to the registry. Font, padding, cursor style, scrollback. Defaults: system mono 13, 8 pt, blinking bar, 10000 lines.
+- `Sources/Spacedock/Settings.swift`: `settings.json` next to the registry. Font, padding, cursor style, scrollback, emulator, raw `ghostty` map. Defaults: system mono 13, 8 pt, blinking bar, 10000 lines, ghostty. `SettingsOverride` is the per-project partial; `Settings.applying` merges. Custom `init(from:)` so missing keys keep defaults.
 - `Sources/Spacedock/Prime.swift`: `PrimeDelegate` (status item, panel window), `ProjectsModel` (registry, settings, running state via `NSRunningApplication`, launch/activate/quit/restart/add/remove/regenerate), SwiftUI `ControlPanelView`.
 - `Sources/Spacedock/Pane.swift`: `TerminalPane`, `SwiftTermPane` (wraps `LocalProcessTerminalView`), `GhosttyPane` (subclasses `AppTerminalView`, exec backend), `PaneFactory`.
 - `Sources/Spacedock/App.swift`: `AppDelegate`, one window per terminal with a padded container, main menu, graceful quit (SIGHUP to shells, 2 s SIGKILL fallback), SIGTERM handler.

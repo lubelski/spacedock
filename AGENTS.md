@@ -14,6 +14,9 @@ open ~/Applications/Spacedock/NAME.app
 .build/release/Spacedock regenerate     # after every rebuild: rewrites prime and all installed bundles
 .build/release/Spacedock restart [SLUG ...]   # quit running apps, regenerate, relaunch them (prime too)
 .build/release/Spacedock list           # slug, color, running|stopped, folder, name
+.build/release/Spacedock set SLUG KEY=VALUE ...      # per-project override; ghostty.<key> for raw Ghostty config
+.build/release/Spacedock set --global KEY=VALUE ...  # edits settings.json
+.build/release/Spacedock show SLUG      # effective settings for one project
 .build/release/Spacedock remove SLUG
 ```
 
@@ -21,7 +24,7 @@ open ~/Applications/Spacedock/NAME.app
 
 The executable is a copy of the Spacedock binary. `Contents/Resources/project.json` holds name, slug, color, and folder. Bundle id is `dev.lubelski.spacedock.<slug>`. The bundle is ad-hoc signed.
 
-Window settings (font, padding, cursor style, scrollback, emulator) are read at launch from `~/Library/Application Support/Spacedock/settings.json`, written with defaults on first `add`. `emulator` is `swiftterm` (default) or `ghostty`; both are linked. The window layer talks to the emulator only through `TerminalPane` in `Sources/Spacedock/Pane.swift`.
+Window settings (font, padding, cursor style, scrollback, emulator) are read at launch from `~/Library/Application Support/Spacedock/settings.json`, written with defaults on first `add`. `emulator` is `ghostty` (default) or `swiftterm` (compatibility only, no new work); both are linked. Each project in `projects.json` may carry a `settings` object overriding any of those fields and a `ghostty` map of raw Ghostty config keys; a global `ghostty` map lives in `settings.json`. Project keys win. Apps read overrides from the registry at launch, so `set` needs a relaunch, not a regenerate. Raw Ghostty keys do nothing in the swiftterm emulator. The window layer talks to the emulator only through `TerminalPane` in `Sources/Spacedock/Pane.swift`.
 
 The prime app runs as a menu bar item (`LSUIElement`, bundle id `dev.lubelski.spacedock`, role from the `SpacedockRole` Info.plist key). Its menu lists projects with a running indicator and launches or activates them. `open ~/Applications/Spacedock.app` while it runs, or launch it with `--args --panel`, shows the control panel: project list with launch, show, quit, restart, regenerate, remove; an add form; the settings form. Project windows stay in their own apps.
 

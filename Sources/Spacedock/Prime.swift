@@ -133,12 +133,14 @@ final class ProjectsModel: ObservableObject {
     }
 
     func saveSettings() {
-        do {
-            try FileManager.default.createDirectory(at: Registry.supportDirectory, withIntermediateDirectories: true)
-            let encoder = JSONEncoder()
-            encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-            try encoder.encode(settings).write(to: Settings.fileURL)
-        } catch { lastError = "settings.json: \(error)" }
+        do { try settings.save() } catch { lastError = "settings.json: \(error)" }
+    }
+
+    /// Saves overrides without regenerating: apps read them from the
+    /// registry at launch.
+    func updateOverrides(_ p: Project) {
+        registry.upsert(p)
+        save()
     }
 }
 
@@ -290,6 +292,7 @@ struct ProjectsTab: View {
 struct ProjectRow: View {
     @ObservedObject var model: ProjectsModel
     let project: Project
+    @State private var editing = false
 
     var body: some View {
         HStack(spacing: 12) {
@@ -305,6 +308,8 @@ struct ProjectRow: View {
                 .font(.caption).foregroundStyle(model.isRunning(project) ? .green : .secondary)
             Button(model.isRunning(project) ? "Show" : "Launch") { model.open(project) }
             Menu {
+                Button("Project Settings…") { editing = true }
+                Divider()
                 Button("Restart") { model.restart(project) }
                 Button("Quit") { model.quit(project) }.disabled(!model.isRunning(project))
                 Button("Regenerate") { model.regenerate(project) }
@@ -318,8 +323,110 @@ struct ProjectRow: View {
             .menuStyle(.borderlessButton).frame(width: 28)
         }
         .padding(.vertical, 4)
+        .sheet(isPresented: $editing) { ProjectSettingsSheet(model: model, project: project) }
     }
 }
+
+/// Per-project overrides. Empty fields inherit the global value. Raw Ghostty
+/// keys are one `key = value` per line.
+struct ProjectSettingsSheet: View {
+    @ObservedObject var model: ProjectsModel
+    let project: Project
+    @Environment(\.dismiss) private var dismiss
+    @State private var override: SettingsOverride
+    @State private var ghosttyText: String
+    @State private var error: String?
+    private let global: Settings
+
+    init(model: ProjectsModel, project: Project) {
+        self.model = model
+        self.project = project
+        global = model.settings
+        _override = State(initialValue: project.settings ?? SettingsOverride())
+        _ghosttyText = State(initialValue: GhosttyKeyText.render(project.ghostty ?? [:]))
+    }
+
+    private func text(_ key: WritableKeyPath<SettingsOverride, String?>) -> Binding<String> {
+        Binding(get: { override[keyPath: key] ?? "" }, set: { override[keyPath: key] = $0.isEmpty ? nil : $0 })
+    }
+    private func number(_ key: WritableKeyPath<SettingsOverride, CGFloat?>) -> Binding<String> {
+        Binding(get: { override[keyPath: key].map { "\($0)" } ?? "" },
+                set: { override[keyPath: key] = Double($0).map { CGFloat($0) } })
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("\(project.name) settings").font(.headline)
+            Text("Empty fields inherit the global value. Changes apply at the project's next launch.")
+                .font(.caption).foregroundStyle(.secondary)
+            Form {
+                Picker("Emulator", selection: Binding(get: { override.emulator ?? "" }, set: { override.emulator = $0.isEmpty ? nil : $0 })) {
+                    Text("Inherit (\(global.emulator))").tag("")
+                    Text("ghostty").tag("ghostty")
+                    Text("swiftterm").tag("swiftterm")
+                }
+                TextField("Font name", text: text(\.fontName), prompt: Text(global.fontName ?? "system monospaced"))
+                TextField("Font size", text: number(\.fontSize), prompt: Text("\(global.fontSize)"))
+                TextField("Padding (pt)", text: number(\.padding), prompt: Text("\(global.padding)"))
+                Picker("Cursor", selection: Binding(get: { override.cursorStyle ?? "" }, set: { override.cursorStyle = $0.isEmpty ? nil : $0 })) {
+                    Text("Inherit (\(global.cursorStyle))").tag("")
+                    ForEach(["blinkBar", "steadyBar", "blinkBlock", "steadyBlock", "blinkUnderline", "steadyUnderline"], id: \.self) { Text($0).tag($0) }
+                }
+                TextField("Scrollback (lines)", text: Binding(get: { override.scrollback.map(String.init) ?? "" },
+                                                              set: { override.scrollback = Int($0) }),
+                          prompt: Text("\(global.scrollback)"))
+            }
+            Text("Ghostty options, one `key = value` per line. Applied after the fields above; ghostty emulator only.")
+                .font(.caption).foregroundStyle(.secondary)
+            TextEditor(text: $ghosttyText)
+                .font(.system(.body, design: .monospaced))
+                .frame(minHeight: 100)
+                .border(Color.secondary.opacity(0.3))
+            if let error { Text(error).font(.callout).foregroundStyle(.red) }
+            HStack {
+                Link("Config reference", destination: URL(string: "https://ghostty.org/docs/config/reference")!)
+                Spacer()
+                Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction)
+                Button("Save") {
+                    switch GhosttyKeyText.parse(ghosttyText) {
+                    case .failure(let e): error = e
+                    case .success(let map):
+                        var p = project
+                        p.settings = override.isEmpty ? nil : override
+                        p.ghostty = map.isEmpty ? nil : map
+                        model.updateOverrides(p)
+                        dismiss()
+                    }
+                }
+                .keyboardShortcut(.defaultAction)
+            }
+        }
+        .padding()
+        .frame(width: 520)
+    }
+}
+
+enum GhosttyKeyText {
+    static func render(_ map: [String: String]) -> String {
+        map.sorted { $0.key < $1.key }.map { "\($0.key) = \($0.value)" }.joined(separator: "\n")
+    }
+
+    static func parse(_ text: String) -> Result<[String: String], String> {
+        var map: [String: String] = [:]
+        for (n, raw) in text.split(separator: "\n", omittingEmptySubsequences: false).enumerated() {
+            let line = raw.trimmingCharacters(in: .whitespaces)
+            if line.isEmpty || line.hasPrefix("#") { continue }
+            guard let eq = line.firstIndex(of: "=") else { return .failure("line \(n + 1): expected key = value") }
+            let key = line[..<eq].trimmingCharacters(in: .whitespaces)
+            let value = line[line.index(after: eq)...].trimmingCharacters(in: .whitespaces)
+            if key.isEmpty { return .failure("line \(n + 1): empty key") }
+            map[key] = value
+        }
+        return .success(map)
+    }
+}
+
+extension String: @retroactive Error {}
 
 struct AddProjectSheet: View {
     @ObservedObject var model: ProjectsModel
@@ -360,6 +467,8 @@ struct AddProjectSheet: View {
 
 struct SettingsTab: View {
     @ObservedObject var model: ProjectsModel
+    @State private var ghosttyText = ""
+    @State private var ghosttyError: String?
 
     private func double(_ key: WritableKeyPath<Settings, CGFloat>) -> Binding<Double> {
         Binding(get: { Double(model.settings[keyPath: key]) },
@@ -380,15 +489,35 @@ struct SettingsTab: View {
                 ForEach(cursorStyles, id: \.self) { Text($0).tag($0) }
             }
             TextField("Scrollback (lines)", value: $model.settings.scrollback, formatter: NumberFormatter())
+            Picker("Emulator", selection: $model.settings.emulator) {
+                Text("ghostty").tag("ghostty")
+                Text("swiftterm (compatibility)").tag("swiftterm")
+            }
+            Text("Ghostty options, one `key = value` per line. Projects can override these.")
+                .font(.caption).foregroundStyle(.secondary)
+            TextEditor(text: $ghosttyText)
+                .font(.system(.body, design: .monospaced))
+                .frame(minHeight: 80)
+                .border(Color.secondary.opacity(0.3))
+            if let ghosttyError { Text(ghosttyError).font(.callout).foregroundStyle(.red) }
             Text("Project apps read settings when they launch. Restart one to apply.")
                 .font(.caption).foregroundStyle(.secondary)
             HStack {
                 Spacer()
-                Button("Revert") { model.settings = Settings.load() }
-                Button("Save") { model.saveSettings() }.keyboardShortcut(.defaultAction)
+                Button("Revert") { model.settings = Settings.load(); ghosttyText = GhosttyKeyText.render(model.settings.ghostty) }
+                Button("Save") {
+                    switch GhosttyKeyText.parse(ghosttyText) {
+                    case .failure(let e): ghosttyError = e
+                    case .success(let map):
+                        ghosttyError = nil
+                        model.settings.ghostty = map
+                        model.saveSettings()
+                    }
+                }.keyboardShortcut(.defaultAction)
             }
         }
         .padding(.top, 8)
+        .onAppear { ghosttyText = GhosttyKeyText.render(model.settings.ghostty) }
     }
 }
 

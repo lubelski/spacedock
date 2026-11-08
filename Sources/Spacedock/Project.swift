@@ -8,6 +8,10 @@ struct Project: Codable {
     var slug: String
     var colorHex: String
     var folder: String
+    /// Per-project overrides of the global `Settings`. Nil fields inherit.
+    var settings: SettingsOverride? = nil
+    /// Raw Ghostty config keys for this project, merged over the global map.
+    var ghostty: [String: String]? = nil
 
     static let bundleIDPrefix = "dev.lubelski.spacedock"
 

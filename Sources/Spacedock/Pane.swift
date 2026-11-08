@@ -114,6 +114,10 @@ final class GhosttyPane: AppTerminalView, TerminalPane,
             b.withWindowPaddingY(Int(settings.padding))
             // Ghostty's scrollback is sized in bytes. ~200 bytes per line is generous.
             b.withCustom("scrollback-limit", String(settings.scrollback * 200))
+            // Raw keys last, so a project can override anything above.
+            for (key, value) in settings.ghostty.sorted(by: { $0.key < $1.key }) {
+                b.withCustom(key, value)
+            }
         }
         super.init(frame: frame)
         delegate = self

@@ -4,8 +4,16 @@ import Foundation
 // One binary, two roles.
 //
 // As a command line tool:
-//   Spacedock add --name NAME --color #RRGGBB --folder PATH
+//   Spacedock add --name NAME --color #RRGGBB --folder PATH [--set KEY=VALUE ...] [--ghostty KEY=VALUE ...]
 //       registers the project and installs ~/Applications/Spacedock/NAME.app.
+//   Spacedock set SLUG KEY=VALUE ...
+//   Spacedock set --global KEY=VALUE ...
+//       per-project or global settings. KEY is fontName, fontSize, padding,
+//       cursorStyle, scrollback, emulator, or ghostty.<ghostty-config-key>.
+//       An empty VALUE removes a per-project override. Takes effect at the
+//       project's next launch; no regenerate needed.
+//   Spacedock show SLUG
+//       the project's effective settings.
 //   Spacedock install
 //       installs the prime app, ~/Applications/Spacedock.app: a menu bar
 //       control panel for the project apps. `open` it again, or launch it
@@ -33,7 +41,10 @@ func fail(_ message: String, status: Int32 = 1) -> Never {
 func usage() -> Never {
     fail("""
     usage:
-      Spacedock add --name NAME [--color #RRGGBB] [--folder PATH]
+      Spacedock add --name NAME [--color #RRGGBB] [--folder PATH] [--set KEY=VALUE ...] [--ghostty KEY=VALUE ...]
+      Spacedock set SLUG KEY=VALUE ...
+      Spacedock set --global KEY=VALUE ...
+      Spacedock show SLUG
       Spacedock install
       Spacedock regenerate
       Spacedock restart [SLUG ...]
@@ -44,8 +55,25 @@ func usage() -> Never {
     """, status: 64)
 }
 
+/// Applies `KEY=VALUE` to a project's overrides. `ghostty.KEY` goes to the raw map.
+func apply(_ assignment: String, to project: inout Project) {
+    guard let eq = assignment.firstIndex(of: "=") else { fail("expected KEY=VALUE, got \(assignment)", status: 64) }
+    let key = String(assignment[..<eq]), value = String(assignment[assignment.index(after: eq)...])
+    if key.hasPrefix("ghostty.") {
+        let gkey = String(key.dropFirst("ghostty.".count))
+        var map = project.ghostty ?? [:]
+        if value.isEmpty { map.removeValue(forKey: gkey) } else { map[gkey] = value }
+        project.ghostty = map.isEmpty ? nil : map
+    } else {
+        var o = project.settings ?? SettingsOverride()
+        if let err = o.set(key, value) { fail(err, status: 64) }
+        project.settings = o.isEmpty ? nil : o
+    }
+}
+
 func parseProject(_ args: ArraySlice<String>) -> (Project, URL?) {
     var name: String?, color = "#3B82F6", folder = FileManager.default.currentDirectoryPath, out: String?
+    var assignments: [String] = []
     var it = args.makeIterator()
     while let a = it.next() {
         switch a {
@@ -53,14 +81,30 @@ func parseProject(_ args: ArraySlice<String>) -> (Project, URL?) {
         case "--color": color = it.next() ?? color
         case "--folder": folder = it.next() ?? folder
         case "--out": out = it.next()
+        case "--set": if let v = it.next() { assignments.append(v) } else { usage() }
+        case "--ghostty": if let v = it.next() { assignments.append("ghostty." + v) } else { usage() }
         default: usage()
         }
     }
     guard let name, !name.isEmpty else { usage() }
     guard NSColor(hex: color) != nil else { fail("bad color \(color); use #RRGGBB", status: 64) }
     let absoluteFolder = URL(fileURLWithPath: (folder as NSString).expandingTildeInPath).standardizedFileURL.path
-    let project = Project(name: name, slug: Project.slugify(name), colorHex: color, folder: absoluteFolder)
+    var project = Project(name: name, slug: Project.slugify(name), colorHex: color, folder: absoluteFolder)
+    for a in assignments { apply(a, to: &project) }
     return (project, out.map { URL(fileURLWithPath: $0) })
+}
+
+func describe(_ s: Settings) -> String {
+    var lines = [
+        "emulator\t\(s.emulator)",
+        "fontName\t\(s.fontName ?? "(system monospaced)")",
+        "fontSize\t\(s.fontSize)",
+        "padding\t\(s.padding)",
+        "cursorStyle\t\(s.cursorStyle)",
+        "scrollback\t\(s.scrollback)",
+    ]
+    for (k, v) in s.ghostty.sorted(by: { $0.key < $1.key }) { lines.append("ghostty.\(k)\t\(v)") }
+    return lines.joined(separator: "\n")
 }
 
 func install(_ project: Project) throws -> URL {
@@ -149,6 +193,43 @@ do {
         }
         exit(0)
 
+    case "set":
+        var rest = Array(args.dropFirst())
+        guard let target = rest.first else { usage() }
+        rest.removeFirst()
+        if rest.isEmpty { usage() }
+        if target == "--global" {
+            var settings = Settings.load()
+            for a in rest {
+                guard let eq = a.firstIndex(of: "=") else { fail("expected KEY=VALUE, got \(a)", status: 64) }
+                let key = String(a[..<eq]), value = String(a[a.index(after: eq)...])
+                if key.hasPrefix("ghostty.") {
+                    let gkey = String(key.dropFirst("ghostty.".count))
+                    if value.isEmpty { settings.ghostty.removeValue(forKey: gkey) } else { settings.ghostty[gkey] = value }
+                } else if let err = settings.set(key, value) {
+                    fail(err, status: 64)
+                }
+            }
+            try settings.save()
+            print(describe(settings))
+        } else {
+            var registry = try Registry.load()
+            guard var p = registry.project(slug: target) else { fail("no project with slug \(target)") }
+            for a in rest { apply(a, to: &p) }
+            registry.upsert(p)
+            try registry.save()
+            print(describe(Settings.load().applying(p.settings, ghostty: p.ghostty)))
+        }
+        exit(0)
+
+    case "show":
+        guard let slug = args.dropFirst().first else { usage() }
+        let registry = try Registry.load()
+        guard let p = registry.project(slug: slug) else { fail("no project with slug \(slug)") }
+        print("\(p.name)\t\(p.colorHex)\t\(p.folder)")
+        print(describe(Settings.load().applying(p.settings, ghostty: p.ghostty)))
+        exit(0)
+
     case "list":
         let registry = try Registry.load()
         for p in registry.projects {
@@ -185,9 +266,11 @@ MainActor.assumeIsolated {
     if isPrime {
         delegate = PrimeDelegate()
     } else {
-        let project = Project.fromMainBundle()
+        let bundled = Project.fromMainBundle()
             ?? Project(name: "Shell", slug: "shell", colorHex: "#6B7280", folder: NSHomeDirectory())
-        delegate = AppDelegate(project: project, settings: Settings.load())
+        // The registry has the latest overrides; the bundle's copy is the identity.
+        let project = (try? Registry.load())?.project(slug: bundled.slug) ?? bundled
+        delegate = AppDelegate(project: project, settings: Settings.load().applying(project.settings, ghostty: project.ghostty))
     }
     app.delegate = delegate
     app.run()
