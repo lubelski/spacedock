@@ -31,6 +31,10 @@ Stop a generated app with Cmd-Q, `kill <pid>`, or `osascript -e 'tell applicatio
 - Read with `gh issue list`, `gh issue view`, and `gh project item-list 3 --owner lubelski`. Add a new issue to the board with `gh project item-add 3 --owner lubelski --url <issue url>`, then set its Status with `gh project item-edit` (field `Status`, project id `PVT_kwHOAAL9Js4BqwVL`). Move the card when starting and finishing work.
 - Issues express intent and are written by or with the user. Record divergence in comments rather than rewriting intent.
 
+## CLI and UI parity
+
+The CLI should let someone do everything from an agent or a terminal. The UI should also allow almost everything. When adding a capability, add it to the CLI, and add it to the UI unless there is a reason not to.
+
 ## Working practices
 
 - Commit as you work. Small, coherent commits after meaningful milestones.
