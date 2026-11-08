@@ -1,0 +1,5 @@
+/.build/
+/.wt/
+/.transient-learning-map/
+/out/
+.DS_Store
