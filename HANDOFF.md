@@ -12,6 +12,8 @@ The idea came from a frustration with single-window developer tools: one app for
 
 Remote: https://github.com/lubelski/spacedock (public, `main` tracks `origin/main`). Installed bundles: four under `~/Applications/Spacedock/` (run `Spacedock list`), registered in `~/Library/Application Support/Spacedock/projects.json`. `Probe` is a throwaway for the icon-refresh test (see `research/2026-11-08-install-and-quit.md`); remove it with `Spacedock remove probe`. `out/` holds stale pre-rename bundles, gitignored, safe to delete.
 
+Session 3 (2026-11-08) added the prime app (`Spacedock install`, `~/Applications/Spacedock.app`): menu bar item, control panel with project list, add form, settings form. Verified: runs as UIElement, panel renders with correct running state (screenshot). Not yet observed: whether activating a project from the menu switches to its Space (issue #8 comment).
+
 Session 2 (2026-11-08) added: install location and registry (`add`, `regenerate`, `list`, `remove`), `settings.json` for font, padding, cursor, scrollback, and graceful quit via Cmd-Q, AppleScript `quit`, and SIGTERM. Verified except the Dock icon refresh after regeneration, which the user still has to look at.
 
 Verified on 2026-11-08 (macOS 26, Xcode 27.2, Swift 6.4.2, SwiftTerm 1.99.3):
@@ -30,8 +32,9 @@ Details: `research/2026-11-08-first-launch.md`.
 - `Sources/Spacedock/Generator.swift`: writes the bundle (Info.plist, PkgInfo, copied executable, `project.json`, icns via `iconutil`, `codesign --sign -`).
 - `Sources/Spacedock/Registry.swift`: `projects.json` under `~/Library/Application Support/Spacedock/`, install directory `~/Applications/Spacedock/`.
 - `Sources/Spacedock/Settings.swift`: `settings.json` next to the registry. Font, padding, cursor style, scrollback. Defaults: system mono 13, 8 pt, blinking bar, 10000 lines.
+- `Sources/Spacedock/Prime.swift`: `PrimeDelegate` (status item, panel window), `ProjectsModel` (registry, settings, running state via `NSRunningApplication`, launch/activate/quit/restart/add/remove/regenerate), SwiftUI `ControlPanelView`.
 - `Sources/Spacedock/App.swift`: `AppDelegate`, one window per terminal with a padded container, main menu, graceful quit (SIGHUP to shells, 2 s SIGKILL fallback), SIGTERM handler.
-- `Sources/Spacedock/main.swift`: `add`, `regenerate`, `list`, `remove`, `generate` subcommands, or run as app.
+- `Sources/Spacedock/main.swift`: `add`, `install`, `regenerate`, `list`, `remove`, `generate` subcommands, or run as app. Role (prime or project) comes from the `SpacedockRole` Info.plist key.
 
 ## Decisions so far
 
@@ -61,6 +64,8 @@ GitHub Project https://github.com/users/lubelski/projects/3, whose items are iss
 
 - The bundle id prefix changed from `dev.lubelski.projectshell` to `dev.lubelski.spacedock` in the rename commit. Space assignments made against the old ids do not carry over.
 - `out/` and `.transient-learning-map/` are gitignored. The learning map was gitignored without asking the user first, which the user's global instructions say to do. Raise it if it matters.
+- A windowless accessory app's first window lands on whichever screen AppKit picks. `showPanel` centers on `NSScreen.main` explicitly; without that the panel opened on the external display.
+- `screencapture -x file` captures the main display only. Use `-l <windowid>` (ids from `CGWindowListCopyWindowInfo`) to capture a window on another display.
 - Do not call `NSApp.terminate` from inside a `DispatchSource` handler. `terminateLater` spins a nested run loop that cannot drain the main dispatch queue while a main-queue block is on the stack. `App.swift` defers through `RunLoop.main.perform`.
 - Interactive zsh ignores SIGTERM. Quit sends SIGHUP.
 - `Bundle.main.executableURL` is what `generate` copies. Running `generate` from a bundle copies that bundle's binary, which is fine, but a stale `out/` binary will not pick up new code until you rebuild and regenerate.

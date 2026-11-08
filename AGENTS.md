@@ -1,6 +1,6 @@
 # Spacedock agent guidance
 
-Spacedock generates one macOS application per project, so the Dock, Cmd-Tab, and Spaces treat each project as its own app. Each generated app runs the Spacedock shell: a window in the project color holding a terminal, later a browser.
+Spacedock generates one macOS application per project, so the Dock, Cmd-Tab, and Spaces treat each project as its own app. Each generated app runs the Spacedock shell: a window in the project color holding a terminal, later a browser. A separate prime app, `~/Applications/Spacedock.app`, is a menu bar control panel for the project apps.
 
 Read `HANDOFF.md` first in a new session, then `.transient-learning-map/orientation.md`.
 
@@ -10,7 +10,8 @@ Read `HANDOFF.md` first in a new session, then `.transient-learning-map/orientat
 swift build -c release
 .build/release/Spacedock add --name NAME --color "#RRGGBB" --folder PATH
 open ~/Applications/Spacedock/NAME.app
-.build/release/Spacedock regenerate     # after every rebuild: rewrites all installed bundles
+.build/release/Spacedock install        # the prime app, ~/Applications/Spacedock.app
+.build/release/Spacedock regenerate     # after every rebuild: rewrites prime and all installed bundles
 .build/release/Spacedock list
 .build/release/Spacedock remove SLUG
 ```
@@ -20,6 +21,8 @@ open ~/Applications/Spacedock/NAME.app
 The executable is a copy of the Spacedock binary. `Contents/Resources/project.json` holds name, slug, color, and folder. Bundle id is `dev.lubelski.spacedock.<slug>`. The bundle is ad-hoc signed.
 
 Window settings (font, padding, cursor style, scrollback) are read at launch from `~/Library/Application Support/Spacedock/settings.json`, written with defaults on first `add`.
+
+The prime app runs as a menu bar item (`LSUIElement`, bundle id `dev.lubelski.spacedock`, role from the `SpacedockRole` Info.plist key). Its menu lists projects with a running indicator and launches or activates them. `open ~/Applications/Spacedock.app` while it runs, or launch it with `--args --panel`, shows the control panel: project list with launch, show, quit, restart, regenerate, remove; an add form; the settings form. Project windows stay in their own apps.
 
 Run `.build/release/Spacedock` with no arguments to open the shell outside a bundle with a default project.
 

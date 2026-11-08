@@ -13,6 +13,14 @@ struct Registry: Codable {
     static let fileURL = supportDirectory.appendingPathComponent("projects.json")
     static let installDirectory = URL(fileURLWithPath: NSHomeDirectory())
         .appendingPathComponent("Applications/Spacedock")
+    /// The prime app lives beside the project folder, not inside it, so a
+    /// registered project named Spacedock does not collide with it.
+    static let primeDirectory = URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent("Applications")
+    static let primeAppURL = primeDirectory.appendingPathComponent("Spacedock.app")
+
+    static func appURL(for project: Project) -> URL {
+        installDirectory.appendingPathComponent("\(project.name).app")
+    }
 
     static func load() throws -> Registry {
         guard FileManager.default.fileExists(atPath: fileURL.path) else { return Registry() }

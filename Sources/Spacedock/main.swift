@@ -6,8 +6,12 @@ import Foundation
 // As a command line tool:
 //   Spacedock add --name NAME --color #RRGGBB --folder PATH
 //       registers the project and installs ~/Applications/Spacedock/NAME.app.
+//   Spacedock install
+//       installs the prime app, ~/Applications/Spacedock.app: a menu bar
+//       control panel for the project apps. `open` it again, or launch it
+//       with `--args --panel`, to show the panel.
 //   Spacedock regenerate
-//       rebuilds every registered bundle from this binary.
+//       rebuilds the prime app and every registered bundle from this binary.
 //   Spacedock list
 //   Spacedock remove SLUG
 //   Spacedock generate --name NAME --color #RRGGBB --folder PATH [--out DIR]
@@ -25,6 +29,7 @@ func usage() -> Never {
     fail("""
     usage:
       Spacedock add --name NAME [--color #RRGGBB] [--folder PATH]
+      Spacedock install
       Spacedock regenerate
       Spacedock list
       Spacedock remove SLUG
@@ -57,6 +62,11 @@ func install(_ project: Project) throws -> URL {
     return try Generator.generate(project: project, outputDirectory: Registry.installDirectory)
 }
 
+func installPrime() throws -> URL {
+    try FileManager.default.createDirectory(at: Registry.primeDirectory, withIntermediateDirectories: true)
+    return try Generator.generatePrime(outputDirectory: Registry.primeDirectory)
+}
+
 let args = CommandLine.arguments.dropFirst()
 
 do {
@@ -74,12 +84,18 @@ do {
         registry.upsert(project)
         try registry.save()
         try Settings().writeIfMissing()
+        if !FileManager.default.fileExists(atPath: Registry.primeAppURL.path) { _ = try installPrime() }
         print(try install(project).path)
+        exit(0)
+
+    case "install":
+        try Settings().writeIfMissing()
+        print(try installPrime().path)
         exit(0)
 
     case "regenerate":
         let registry = try Registry.load()
-        if registry.projects.isEmpty { fail("no projects registered; use `Spacedock add`") }
+        print(try installPrime().path)
         for p in registry.projects { print(try install(p).path) }
         exit(0)
 
@@ -110,12 +126,18 @@ do {
     fail("\(args.first ?? "spacedock") failed: \(error)")
 }
 
-let project = Project.fromMainBundle()
-    ?? Project(name: "Shell", slug: "shell", colorHex: "#6B7280", folder: NSHomeDirectory())
+let isPrime = (Bundle.main.object(forInfoDictionaryKey: Generator.primeRoleKey) as? String) == Generator.primeRoleValue
 
 MainActor.assumeIsolated {
     let app = NSApplication.shared
-    let delegate = AppDelegate(project: project, settings: Settings.load())
+    let delegate: NSApplicationDelegate
+    if isPrime {
+        delegate = PrimeDelegate()
+    } else {
+        let project = Project.fromMainBundle()
+            ?? Project(name: "Shell", slug: "shell", colorHex: "#6B7280", folder: NSHomeDirectory())
+        delegate = AppDelegate(project: project, settings: Settings.load())
+    }
     app.delegate = delegate
     app.run()
 }
