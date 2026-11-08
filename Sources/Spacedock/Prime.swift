@@ -170,6 +170,9 @@ final class PrimeDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         settings.target = self
         appMenu.addItem(settings)
         appMenu.addItem(.separator())
+        let restartPrime = NSMenuItem(title: "Restart Spacedock", action: #selector(restartSelf), keyEquivalent: "")
+        restartPrime.target = self
+        appMenu.addItem(restartPrime)
         appMenu.addItem(withTitle: "Quit Spacedock", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         appItem.submenu = appMenu
         mainMenu.addItem(appItem)
@@ -234,7 +237,25 @@ final class PrimeDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         regen.target = self
         menu.addItem(regen)
         menu.addItem(.separator())
+        let restartPrime = NSMenuItem(title: "Restart Spacedock", action: #selector(restartSelf), keyEquivalent: "")
+        restartPrime.target = self
+        menu.addItem(restartPrime)
         menu.addItem(withTitle: "Quit Spacedock", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+    }
+
+    /// Relaunches this prime app from its bundle on disk, so a regenerated
+    /// bundle takes effect. A detached shell waits for this pid to exit, then
+    /// opens the bundle. Project apps keep running.
+    @objc private func restartSelf() {
+        let pid = ProcessInfo.processInfo.processIdentifier
+        let bundle = Bundle.main.bundleURL.path
+        let flag = Profile.current.launchesInBackground ? "-g " : ""
+        let script = "while kill -0 \(pid) 2>/dev/null; do sleep 0.1; done; /usr/bin/open \(flag)\"$1\""
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: "/bin/sh")
+        p.arguments = ["-c", script, "sh", bundle]
+        do { try p.run() } catch { model.lastError = "restart: \(error)"; return }
+        NSApp.terminate(nil)
     }
 
     /// A filled circle in the project color when running, a ring when not.
