@@ -23,7 +23,7 @@ The bundle's executable is a copy of the `Spacedock` binary. Its `Contents/Resou
 
 `install` writes the prime app, `~/Applications/Spacedock.app`: a menu bar item that lists the projects, shows which are running, and launches or activates them. Open it again for the control panel, which adds and removes projects, restarts them, and edits settings.
 
-Window settings (font, padding, cursor style, scrollback) are read from `~/Library/Application Support/Spacedock/settings.json`, written with defaults on first `add`.
+Window settings (font, padding, cursor style, scrollback, and which emulator fills the window: `swiftterm` or `ghostty`) are read from `~/Library/Application Support/Spacedock/settings.json`, written with defaults on first `add`.
 
 Run `.build/release/Spacedock` with no arguments to open the app outside a bundle with a default project.
 
@@ -33,6 +33,7 @@ Run `.build/release/Spacedock` with no arguments to open the app outside a bundl
 - `Sources/Spacedock/Generator.swift`: writes the bundle, Info.plist, and icon.
 - `Sources/Spacedock/Registry.swift`: the project list and install directory.
 - `Sources/Spacedock/Settings.swift`: window-layer settings.
+- `Sources/Spacedock/Pane.swift`: the `TerminalPane` protocol and its SwiftTerm and libghostty implementations.
 - `Sources/Spacedock/App.swift`: the project app delegate, window, menu, terminal, and quit handling.
 - `Sources/Spacedock/Prime.swift`: the prime app, menu bar item, and control panel.
 - `Sources/Spacedock/main.swift`: argument dispatch.

@@ -12,6 +12,8 @@ The idea came from a frustration with single-window developer tools: one app for
 
 Remote: https://github.com/lubelski/spacedock (public, `main` tracks `origin/main`). Installed bundles: four under `~/Applications/Spacedock/` (run `Spacedock list`), registered in `~/Library/Application Support/Spacedock/projects.json`. `Probe` is a throwaway for the icon-refresh test (see `research/2026-11-08-install-and-quit.md`); remove it with `Spacedock remove probe`. `out/` holds stale pre-rename bundles, gitignored, safe to delete.
 
+Session 3 (2026-11-08) also ran the libghostty spike (`research/2026-11-08-libghostty-spike.md`). `Pane.swift` holds a `TerminalPane` protocol with SwiftTerm and libghostty (Lakr233/libghostty-spm) implementations. `settings.json` `emulator` picks one; default `swiftterm`. A ghostty-backed project app was generated, launched, screenshotted, and quit cleanly. Open: which emulator should be the default, and the ghostty pane's copy, paste, and font behavior.
+
 Session 3 (2026-11-08) also added `Spacedock restart [SLUG ...]`: quit running project apps and the prime app through the Apple event, regenerate every bundle, relaunch what was running. Verified: one running project plus prime restarted with new pids in 0.93 s. `list` shows running state.
 
 Session 3 (2026-11-08) added the prime app (`Spacedock install`, `~/Applications/Spacedock.app`): menu bar item, control panel with project list, add form, settings form. Verified: runs as UIElement, panel renders with correct running state (screenshot). Not yet observed: whether activating a project from the menu switches to its Space (issue #8 comment).
@@ -35,6 +37,7 @@ Details: `research/2026-11-08-first-launch.md`.
 - `Sources/Spacedock/Registry.swift`: `projects.json` under `~/Library/Application Support/Spacedock/`, install directory `~/Applications/Spacedock/`.
 - `Sources/Spacedock/Settings.swift`: `settings.json` next to the registry. Font, padding, cursor style, scrollback. Defaults: system mono 13, 8 pt, blinking bar, 10000 lines.
 - `Sources/Spacedock/Prime.swift`: `PrimeDelegate` (status item, panel window), `ProjectsModel` (registry, settings, running state via `NSRunningApplication`, launch/activate/quit/restart/add/remove/regenerate), SwiftUI `ControlPanelView`.
+- `Sources/Spacedock/Pane.swift`: `TerminalPane`, `SwiftTermPane` (wraps `LocalProcessTerminalView`), `GhosttyPane` (subclasses `AppTerminalView`, exec backend), `PaneFactory`.
 - `Sources/Spacedock/App.swift`: `AppDelegate`, one window per terminal with a padded container, main menu, graceful quit (SIGHUP to shells, 2 s SIGKILL fallback), SIGTERM handler.
 - `Sources/Spacedock/main.swift`: `add`, `install`, `regenerate`, `list`, `remove`, `generate` subcommands, or run as app. Role (prime or project) comes from the `SpacedockRole` Info.plist key.
 
@@ -42,8 +45,8 @@ Details: `research/2026-11-08-first-launch.md`.
 
 1. Standalone repo, not a module of a larger app. The open questions were about macOS, and a negative result should not disturb anything else.
 2. Copy the binary into each bundle rather than split a framework. Revisit when a larger component joins or update propagation matters.
-3. SwiftTerm as the first terminal. libghostty is a candidate replacement behind the same window. The user's view: rewriting the bridge later is acceptable ("agents are good at rewriting").
-4. Window layer (splits, padding, cursor style, font) is ours regardless of emulator. Design it against a small protocol so the emulator can swap.
+3. SwiftTerm as the first terminal. libghostty now sits behind the same window as a second `TerminalPane`; the default is still SwiftTerm until the user decides.
+4. Window layer (splits, padding, cursor style, font) is ours regardless of emulator. `TerminalPane` in `Pane.swift` is the protocol; both emulators implement it.
 
 ## Open threads
 
@@ -52,7 +55,7 @@ In the order the agent would take them. The user has not confirmed this order.
 1. Done: install location and registry.
 2. Done except the observation: regenerate in place and confirm the Dock icon refreshes. Probe.app is set up for the user to look at.
 3. Done except splits (`NSSplitView`): padding, cursor style, font, and scrollback are settings.
-4. libghostty spike. Try `rijieli/libghostty-spm` at tag `ghostty-1.4.0` (pinned to stable Ghostty) or `Lakr233/libghostty-spm` (tracks main weekly). Both wrap the internal embedder API that upstream says will change. Upstream `libghostty-vt` 1.0.0 is parsing and state only, no renderer. A first-party Swift Metal renderer was announced by Mitchell Hashimoto as coming soon, not released as of this search.
+4. Done: libghostty spike. Remaining: default emulator decision, copy and paste and font in the ghostty pane. Try `rijieli/libghostty-spm` at tag `ghostty-1.4.0` (pinned to stable Ghostty) or `Lakr233/libghostty-spm` (tracks main weekly). Both wrap the internal embedder API that upstream says will change. Upstream `libghostty-vt` 1.0.0 is parsing and state only, no renderer. A first-party Swift Metal renderer was announced by Mitchell Hashimoto as coming soon, not released as of this search.
 5. Embedded browser: a WKWebView window per project for PR and ticket pages. Cookies live in the app's own WebKit container, so expect per-project login or a broker.
 6. Shared state and secrets across project apps. Keychain ACLs follow the designated requirement, which includes the bundle id, and ad-hoc signatures are each unique. Chrome's answer is one broker process that owns secrets. Not needed until a browser joins.
 7. Done: graceful quit.
@@ -66,6 +69,7 @@ GitHub Project https://github.com/users/lubelski/projects/3, whose items are iss
 
 - The bundle id prefix changed from `dev.lubelski.projectshell` to `dev.lubelski.spacedock` in the rename commit. Space assignments made against the old ids do not carry over.
 - `out/` and `.transient-learning-map/` are gitignored. The learning map was gitignored without asking the user first, which the user's global instructions say to do. Raise it if it matters.
+- `Bundle.module` in a generated app needs the SwiftPM resource bundle under `Contents/Resources`. The generator copies every `*.bundle` next to the source executable. Without it GhosttyTerminal traps at first use.
 - A windowless accessory app's first window lands on whichever screen AppKit picks. `showPanel` centers on `NSScreen.main` explicitly; without that the panel opened on the external display.
 - `screencapture -x file` captures the main display only. Use `-l <windowid>` (ids from `CGWindowListCopyWindowInfo`) to capture a window on another display.
 - Do not call `NSApp.terminate` from inside a `DispatchSource` handler. `terminateLater` spins a nested run loop that cannot drain the main dispatch queue while a main-queue block is on the stack. `App.swift` defers through `RunLoop.main.perform`.

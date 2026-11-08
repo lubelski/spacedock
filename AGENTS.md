@@ -21,7 +21,7 @@ open ~/Applications/Spacedock/NAME.app
 
 The executable is a copy of the Spacedock binary. `Contents/Resources/project.json` holds name, slug, color, and folder. Bundle id is `dev.lubelski.spacedock.<slug>`. The bundle is ad-hoc signed.
 
-Window settings (font, padding, cursor style, scrollback) are read at launch from `~/Library/Application Support/Spacedock/settings.json`, written with defaults on first `add`.
+Window settings (font, padding, cursor style, scrollback, emulator) are read at launch from `~/Library/Application Support/Spacedock/settings.json`, written with defaults on first `add`. `emulator` is `swiftterm` (default) or `ghostty`; both are linked. The window layer talks to the emulator only through `TerminalPane` in `Sources/Spacedock/Pane.swift`.
 
 The prime app runs as a menu bar item (`LSUIElement`, bundle id `dev.lubelski.spacedock`, role from the `SpacedockRole` Info.plist key). Its menu lists projects with a running indicator and launches or activates them. `open ~/Applications/Spacedock.app` while it runs, or launch it with `--args --panel`, shows the control panel: project list with launch, show, quit, restart, regenerate, remove; an add form; the settings form. Project windows stay in their own apps.
 
