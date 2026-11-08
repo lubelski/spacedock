@@ -233,8 +233,7 @@ struct SectionForm: View {
             }
         }
         .formStyle(.grouped)
-        .navigationTitle("Spacedock Settings" + Profile.current.nameSuffix)
-        .navigationSubtitle(section.rawValue)
+        .settingsTitle(section.rawValue)
     }
 }
 
@@ -261,8 +260,7 @@ struct SearchResultsView: View {
             }
         }
         .formStyle(.grouped)
-        .navigationTitle("Spacedock Settings" + Profile.current.nameSuffix)
-        .navigationSubtitle("Search")
+        .settingsTitle("Search")
     }
 }
 
@@ -334,6 +332,20 @@ struct SettingRow: View {
                 ForEach(options, id: \.value) { Text($0.label).tag($0.value) }
             }
             .labelsHidden().frame(width: 200)
+        }
+    }
+}
+
+extension View {
+    /// Window title and section name, centered in the unified title bar.
+    func settingsTitle(_ subtitle: String) -> some View {
+        toolbar {
+            ToolbarItem(placement: .principal) {
+                VStack(spacing: 1) {
+                    Text("Spacedock Settings" + Profile.current.nameSuffix).font(.headline)
+                    Text(subtitle).font(.subheadline).foregroundStyle(.secondary)
+                }
+            }
         }
     }
 }
