@@ -262,6 +262,10 @@ final class PrimeDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             let w = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 760, height: 520),
                              styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
             w.title = "Spacedock Settings" + Profile.current.nameSuffix
+            // An empty toolbar keeps the tall unified title bar that the
+            // sidebar toggle used to bring; the toggle itself is removed.
+            w.toolbar = NSToolbar(identifier: "settings")
+            w.toolbarStyle = .unified
             w.isReleasedWhenClosed = false
             w.setFrameAutosaveName("settings")
             w.center()
