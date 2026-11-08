@@ -9,7 +9,7 @@ struct Project: Codable {
     var colorHex: String
     var folder: String
 
-    static let bundleIDPrefix = "dev.lubelski.projectshell"
+    static let bundleIDPrefix = "dev.lubelski.spacedock"
 
     var bundleIdentifier: String { "\(Project.bundleIDPrefix).\(slug)" }
 

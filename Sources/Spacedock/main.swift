@@ -2,17 +2,17 @@ import AppKit
 import Foundation
 
 // Two modes, one binary:
-//   ProjectShell generate --name NAME --color #RRGGBB --folder PATH [--out DIR]
+//   Spacedock generate --name NAME --color #RRGGBB --folder PATH [--out DIR]
 //       writes NAME.app into DIR (default ./out) and prints its path.
-//   ProjectShell
+//   Spacedock
 //       runs as an app. Reads project.json from its own bundle; when there is
 //       none (plain `swift run`), uses a default project so the app still opens.
 
 func usage() -> Never {
     FileHandle.standardError.write("""
     usage:
-      ProjectShell generate --name NAME --color #RRGGBB --folder PATH [--out DIR]
-      ProjectShell            (run as the app in the current bundle)
+      Spacedock generate --name NAME --color #RRGGBB --folder PATH [--out DIR]
+      Spacedock            (run as the app in the current bundle)
 
     """.data(using: .utf8)!)
     exit(64)
