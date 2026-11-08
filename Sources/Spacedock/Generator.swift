@@ -70,6 +70,23 @@ enum Generator {
         let exeURL = macOS.appendingPathComponent(spec.executableName)
         try fm.copyItem(at: selfURL.resolvingSymlinksInPath(), to: exeURL)
 
+        // SwiftPM resource bundles sit next to the executable in the build
+        // directory. `Bundle.module` looks in `Bundle.main.resourceURL`, so
+        // copy them into Resources. GhosttyTerminal ships terminfo and shell
+        // integration this way; SwiftTerm has none.
+        let siblings = try fm.contentsOfDirectory(at: selfURL.resolvingSymlinksInPath().deletingLastPathComponent(),
+                                                  includingPropertiesForKeys: nil)
+        for sibling in siblings where sibling.pathExtension == "bundle" {
+            try fm.copyItem(at: sibling, to: resources.appendingPathComponent(sibling.lastPathComponent))
+        }
+        if let ownResources = Bundle.main.resourceURL, ownResources != selfURL.deletingLastPathComponent() {
+            // Regenerating from an installed app: its Resources hold the bundles.
+            for sibling in (try? fm.contentsOfDirectory(at: ownResources, includingPropertiesForKeys: nil)) ?? []
+            where sibling.pathExtension == "bundle" && !fm.fileExists(atPath: resources.appendingPathComponent(sibling.lastPathComponent).path) {
+                try fm.copyItem(at: sibling, to: resources.appendingPathComponent(sibling.lastPathComponent))
+            }
+        }
+
         // Project definition.
         if let project = spec.project {
             let encoder = JSONEncoder()

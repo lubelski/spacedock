@@ -1,11 +1,12 @@
 import AppKit
 import SwiftTerm
 
-final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, LocalProcessTerminalViewDelegate {
+@MainActor
+final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     let project: Project
     let settings: Settings
     var windows: [NSWindow] = []
-    var terminals: [LocalProcessTerminalView] = []
+    var terminals: [any TerminalPane] = []
     private var sigterm: DispatchSourceSignal?
     private var quitting = false
 
@@ -50,15 +51,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, Loca
     /// ignores SIGTERM but exits on SIGHUP), then finish once they have all
     /// exited or after a short deadline.
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
-        let live = terminals.filter { $0.process.running }
+        let live = terminals.filter { $0.isShellRunning }
         if live.isEmpty { return .terminateNow }
         quitting = true
-        for t in live { kill(t.process.shellPid, SIGHUP) }
+        for t in live { t.hangUp() }
         DispatchQueue.main.asyncAfter(deadline: .now() + 2) { [weak self] in
             guard let self, self.quitting else { return }
-            for t in self.terminals where t.process.running {
-                kill(t.process.shellPid, SIGKILL)
-            }
             NSApp.reply(toApplicationShouldTerminate: true)
         }
         return .terminateLater
@@ -85,27 +83,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, Loca
         window.appearance = NSAppearance(named: project.color.luminance > 0.6 ? .aqua : .darkAqua)
 
         // Padding: a container in the terminal background color, with the
-        // terminal inset by `settings.padding` on every side.
+        // terminal inset by `settings.padding` on every side. Ghostty pads
+        // inside its own surface, so that pane fills the container.
         let container = NSView(frame: window.contentView!.bounds)
         container.wantsLayer = true
         container.layer?.backgroundColor = background.cgColor
 
-        let terminal = LocalProcessTerminalView(frame: container.bounds.insetBy(dx: settings.padding, dy: settings.padding),
-                                                font: settings.font,
-                                                options: settings.terminalOptions)
+        let inset: CGFloat = settings.emulator.lowercased() == "ghostty" ? 0 : settings.padding
+        let terminal = PaneFactory.make(settings: settings, project: project, background: background,
+                                        frame: container.bounds.insetBy(dx: inset, dy: inset))
         terminal.autoresizingMask = [.width, .height]
-        terminal.nativeBackgroundColor = background
-        terminal.nativeForegroundColor = .white
-        terminal.processDelegate = self
+        terminal.onTitle = { [weak window] title in
+            if !title.isEmpty { window?.subtitle = title }
+        }
+        terminal.onDirectory = { [weak window] path in
+            window?.subtitle = path.replacingOccurrences(of: NSHomeDirectory(), with: "~")
+        }
+        terminal.onShellExit = { [weak self, weak terminal] in
+            guard let self, let terminal else { return }
+            self.shellExited(terminal)
+        }
         container.addSubview(terminal)
 
         let shell = ProcessInfo.processInfo.environment["SHELL"] ?? "/bin/zsh"
-        var env = Terminal.getEnvironmentVariables(termName: "xterm-256color")
-        env.append("SPACEDOCK_PROJECT=\(project.name)")
-        env.append("SPACEDOCK_SLUG=\(project.slug)")
-        terminal.startProcess(executable: shell, args: ["-l"], environment: env,
-                              execName: "-" + (shell as NSString).lastPathComponent,
-                              currentDirectory: project.folderURL.path)
+        terminal.start(shell: shell, directory: project.folderURL.path,
+                       env: ["SPACEDOCK_PROJECT": project.name, "SPACEDOCK_SLUG": project.slug])
 
         window.contentView = container
         window.makeFirstResponder(terminal)
@@ -122,34 +124,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, Loca
     func windowWillClose(_ notification: Notification) {
         guard let w = notification.object as? NSWindow else { return }
         if let t = terminals.first(where: { $0.window === w }) {
-            if t.process.running { kill(t.process.shellPid, SIGHUP) }
+            if t.isShellRunning { t.hangUp() }
             terminals.removeAll { $0 === t }
         }
         windows.removeAll { $0 === w }
     }
 
-    // MARK: LocalProcessTerminalViewDelegate
-
-    func sizeChanged(source: LocalProcessTerminalView, newCols: Int, newRows: Int) {}
-
-    /// The window title stays the project name. The shell's title goes in the
-    /// subtitle until an OSC 7 directory report replaces it.
-    func setTerminalTitle(source: LocalProcessTerminalView, title: String) {
-        if !title.isEmpty { source.window?.subtitle = title }
-    }
-
-    func hostCurrentDirectoryUpdate(source: TerminalView, directory: String?) {
-        guard let directory, let url = URL(string: directory) else { return }
-        source.window?.subtitle = url.path.replacingOccurrences(of: NSHomeDirectory(), with: "~")
-    }
-
     /// A shell that exits closes its window. During quit, the last shell to
     /// exit lets the app finish terminating.
-    func processTerminated(source: TerminalView, exitCode: Int32?) {
-        guard let t = source as? LocalProcessTerminalView else { return }
+    func shellExited(_ t: any TerminalPane) {
         terminals.removeAll { $0 === t }
         if quitting {
-            if terminals.allSatisfy({ !$0.process.running }) {
+            if terminals.allSatisfy({ !$0.isShellRunning }) {
                 quitting = false
                 NSApp.reply(toApplicationShouldTerminate: true)
             }

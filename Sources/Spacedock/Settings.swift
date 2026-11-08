@@ -12,6 +12,8 @@ struct Settings: Codable {
     /// One of: blinkBlock, steadyBlock, blinkUnderline, steadyUnderline, blinkBar, steadyBar.
     var cursorStyle: String = "blinkBar"
     var scrollback: Int = 10_000
+    /// "swiftterm" or "ghostty". Which emulator fills the window.
+    var emulator: String = "swiftterm"
 
     static let fileURL = Registry.supportDirectory.appendingPathComponent("settings.json")
 
