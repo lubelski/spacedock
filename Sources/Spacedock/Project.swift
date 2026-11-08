@@ -15,7 +15,10 @@ struct Project: Codable {
 
     static let bundleIDPrefix = "dev.lubelski.spacedock"
 
-    var bundleIdentifier: String { "\(Project.bundleIDPrefix).\(slug)" }
+    var bundleIdentifier: String { "\(Profile.current.bundlePrefix).\(slug)" }
+
+    /// Name as shown in the Dock: the project name plus the profile suffix.
+    var displayName: String { name + Profile.current.nameSuffix }
 
     var color: NSColor { NSColor(hex: colorHex) ?? .systemBlue }
 

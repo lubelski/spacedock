@@ -12,6 +12,8 @@ The idea came from a frustration with single-window developer tools: one app for
 
 Remote: https://github.com/lubelski/spacedock (public, `main` tracks `origin/main`). Installed bundles: four under `~/Applications/Spacedock/` (run `Spacedock list`), registered in `~/Library/Application Support/Spacedock/projects.json`. `Probe` is a throwaway for the icon-refresh test (see `research/2026-11-08-install-and-quit.md`); remove it with `Spacedock remove probe`. `out/` holds stale pre-rename bundles, gitignored, safe to delete.
 
+Session 3 (2026-11-08) added profiles (`Profile.swift`): `--profile NAME` or `SPACEDOCK_PROFILE` gives agent copies their own bundle ids, registry, settings, and bundles under Application Support, a name suffix, an icon badge, and background launch (`open -g`, no `activate`, `orderFront`). The running app reads its profile from the `SpacedockProfile` Info.plist key. `quit [SLUG ...]` added. Verified: `add --profile dev` wrote separate files; `restart --profile dev hoard` launched without changing the frontmost app (iTerm2 before and after); default registry untouched. Not verified: Space assignment through the Dock for a profile's apps (user-side, one-time).
+
 Session 3 (2026-11-08) made libghostty the default (user decision) and added per-project overrides: `Project.settings` (a `SettingsOverride`, all fields optional) and `Project.ghostty` (raw keys), plus `Settings.ghostty` globally. `set`, `set --global`, `show` on the CLI; a Project Settings sheet and a global Ghostty editor in the panel. Apps merge overrides from the registry at launch. Verified: `set hoard ghostty.font-size=20` then relaunch grew the text. Not verified: `cursor-color` override did not visibly change the cursor (cause unknown; the package theme sets no cursor keys), and the panel sheets were not exercised by click.
 
 Session 3 (2026-11-08) also ran the libghostty spike (`research/2026-11-08-libghostty-spike.md`). `Pane.swift` holds a `TerminalPane` protocol with SwiftTerm and libghostty (Lakr233/libghostty-spm) implementations. `settings.json` `emulator` picks one; default `swiftterm`. A ghostty-backed project app was generated, launched, screenshotted, and quit cleanly. Open: which emulator should be the default, and the ghostty pane's copy, paste, and font behavior.
@@ -36,6 +38,7 @@ Details: `research/2026-11-08-first-launch.md`.
 
 - `Sources/Spacedock/Project.swift`: the project definition, read from `project.json` in the bundle. `bundleIDPrefix = "dev.lubelski.spacedock"`.
 - `Sources/Spacedock/Generator.swift`: writes the bundle (Info.plist, PkgInfo, copied executable, `project.json`, icns via `iconutil`, `codesign --sign -`).
+- `Sources/Spacedock/Profile.swift`: `Profile.current`, set from `--profile`/env in the CLI and from Info.plist in the app. Bundle prefix, support, install, and prime directories derive from it.
 - `Sources/Spacedock/Registry.swift`: `projects.json` under `~/Library/Application Support/Spacedock/`, install directory `~/Applications/Spacedock/`.
 - `Sources/Spacedock/Settings.swift`: `settings.json` next to the registry. Font, padding, cursor style, scrollback, emulator, raw `ghostty` map. Defaults: system mono 13, 8 pt, blinking bar, 10000 lines, ghostty. `SettingsOverride` is the per-project partial; `Settings.applying` merges. Custom `init(from:)` so missing keys keep defaults.
 - `Sources/Spacedock/Prime.swift`: `PrimeDelegate` (status item, panel window), `ProjectsModel` (registry, settings, running state via `NSRunningApplication`, launch/activate/quit/restart/add/remove/regenerate), SwiftUI `ControlPanelView`.
@@ -71,6 +74,7 @@ GitHub Project https://github.com/users/lubelski/projects/3, whose items are iss
 
 - The bundle id prefix changed from `dev.lubelski.projectshell` to `dev.lubelski.spacedock` in the rename commit. Space assignments made against the old ids do not carry over.
 - `out/` and `.transient-learning-map/` are gitignored. The learning map was gitignored without asking the user first, which the user's global instructions say to do. Raise it if it matters.
+- `restart` once looked up the prime app by the unprofiled bundle id and quit the user's installed prime from a dev-profile run. Every bundle id lookup goes through `Profile.current.bundlePrefix` now. Grep for `Project.bundleIDPrefix` before adding another.
 - `Bundle.module` in a generated app needs the SwiftPM resource bundle under `Contents/Resources`. The generator copies every `*.bundle` next to the source executable. Without it GhosttyTerminal traps at first use.
 - A windowless accessory app's first window lands on whichever screen AppKit picks. `showPanel` centers on `NSScreen.main` explicitly; without that the panel opened on the external display.
 - `screencapture -x file` captures the main display only. Use `-l <windowid>` (ids from `CGWindowListCopyWindowInfo`) to capture a window on another display.

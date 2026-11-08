@@ -24,11 +24,20 @@ import Foundation
 //       quits the named running project apps (all running ones by default),
 //       regenerates every bundle, and relaunches the ones that were running.
 //       The prime app is restarted too when it is running.
+//   Spacedock quit [SLUG ...]
+//       quits the named running project apps, or every running one plus the
+//       prime app when no names are given. Agents use it to clean up a profile.
 //   Spacedock list
 //       one line per project: slug, color, running or stopped, folder, name.
 //   Spacedock remove SLUG
 //   Spacedock generate --name NAME --color #RRGGBB --folder PATH [--out DIR]
 //       one-off bundle, not registered (default DIR is ./out).
+//
+// Every CLI command takes --profile NAME (or SPACEDOCK_PROFILE). The default
+// profile is the installed copy. Any other profile has its own bundle ids,
+// registry, settings, and bundles under
+// ~/Library/Application Support/Spacedock/profiles/NAME/, and its apps launch
+// in the background (no focus change). Use it for development copies.
 //
 // As an app (no arguments): reads project.json from its own bundle. With no
 // bundle (plain `swift run`) it opens a default project so the shell still runs.
@@ -48,6 +57,7 @@ func usage() -> Never {
       Spacedock install
       Spacedock regenerate
       Spacedock restart [SLUG ...]
+      Spacedock quit [SLUG ...]
       Spacedock list
       Spacedock remove SLUG
       Spacedock generate --name NAME [--color #RRGGBB] [--folder PATH] [--out DIR]
@@ -132,7 +142,19 @@ func installPrime() throws -> URL {
     return try Generator.generatePrime(outputDirectory: Registry.primeDirectory)
 }
 
-let args = CommandLine.arguments.dropFirst()
+var argv = Array(CommandLine.arguments.dropFirst())
+if let i = argv.firstIndex(of: "--profile") {
+    guard i + 1 < argv.count else { usage() }
+    Profile.current = Profile.named(argv[i + 1])
+    argv.removeSubrange(i...i + 1)
+} else if let env = ProcessInfo.processInfo.environment["SPACEDOCK_PROFILE"], !env.isEmpty {
+    Profile.current = Profile.named(env)
+}
+// A running app's profile comes from its bundle, never from the environment.
+if CommandLine.arguments.count <= 1 || argv.first?.hasPrefix("-") == true {
+    Profile.current = Profile.fromMainBundle()
+}
+let args = argv[...]
 
 do {
     switch args.first {
@@ -171,24 +193,28 @@ do {
             guard let p = registry.project(slug: slug) else { fail("no project with slug \(slug)") }
             return p
         }
+        // Named projects relaunch even if stopped; with no names, only the running ones do.
         var toRelaunch: [URL] = []
         for p in targets {
-            guard let app = running(p.bundleIdentifier) else { continue }
-            if !quitAndWait(app) { app.forceTerminate(); _ = quitAndWait(app, timeout: 1) }
-            toRelaunch.append(Registry.appURL(for: p))
-            print("quit \(p.name)")
+            if let app = running(p.bundleIdentifier) {
+                if !quitAndWait(app) { app.forceTerminate(); _ = quitAndWait(app, timeout: 1) }
+                print("quit \(p.displayName)")
+                toRelaunch.append(Registry.appURL(for: p))
+            } else if !slugs.isEmpty {
+                toRelaunch.append(Registry.appURL(for: p))
+            }
         }
-        let primeWasRunning = running(Project.bundleIDPrefix)
+        let primeWasRunning = running(Profile.current.bundlePrefix)
         if let prime = primeWasRunning {
             if !quitAndWait(prime) { prime.forceTerminate(); _ = quitAndWait(prime, timeout: 1) }
-            print("quit Spacedock")
+            print("quit Spacedock\(Profile.current.nameSuffix)")
         }
         _ = try installPrime()
         for p in registry.projects { _ = try install(p) }
         print("regenerated \(registry.projects.count + 1) bundles")
         if primeWasRunning != nil { toRelaunch.insert(Registry.primeAppURL, at: 0) }
         for url in toRelaunch {
-            try Generator.run("/usr/bin/open", [url.path])
+            try Generator.run("/usr/bin/open", Profile.current.launchesInBackground ? ["-g", url.path] : [url.path])
             print("launched \(url.deletingPathExtension().lastPathComponent)")
         }
         exit(0)
@@ -230,11 +256,29 @@ do {
         print(describe(Settings.load().applying(p.settings, ghostty: p.ghostty)))
         exit(0)
 
+    case "quit":
+        let registry = try Registry.load()
+        let slugs = Array(args.dropFirst())
+        let targets = slugs.isEmpty ? registry.projects : try slugs.map { slug in
+            guard let p = registry.project(slug: slug) else { fail("no project with slug \(slug)") }
+            return p
+        }
+        for p in targets {
+            guard let app = running(p.bundleIdentifier) else { continue }
+            if !quitAndWait(app) { app.forceTerminate(); _ = quitAndWait(app, timeout: 1) }
+            print("quit \(p.displayName)")
+        }
+        if slugs.isEmpty, let prime = running(Profile.current.bundlePrefix) {
+            if !quitAndWait(prime) { prime.forceTerminate(); _ = quitAndWait(prime, timeout: 1) }
+            print("quit Spacedock\(Profile.current.nameSuffix)")
+        }
+        exit(0)
+
     case "list":
         let registry = try Registry.load()
         for p in registry.projects {
             let state = running(p.bundleIdentifier) == nil ? "stopped" : "running"
-            print("\(p.slug)\t\(p.colorHex)\t\(state)\t\(p.folder)\t\(p.name)")
+            print("\(p.slug)\t\(p.colorHex)\t\(state)\t\(p.folder)\t\(p.displayName)")
         }
         exit(0)
 
@@ -243,7 +287,7 @@ do {
         var registry = try Registry.load()
         guard let p = registry.remove(slug: slug) else { fail("no project with slug \(slug)") }
         try registry.save()
-        let app = Registry.installDirectory.appendingPathComponent("\(p.name).app")
+        let app = Registry.appURL(for: p)
         if FileManager.default.fileExists(atPath: app.path) { try FileManager.default.removeItem(at: app) }
         print("removed \(p.name)")
         exit(0)

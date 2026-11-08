@@ -4,6 +4,20 @@ Spacedock generates one macOS application per project, so the Dock, Cmd-Tab, and
 
 Read `HANDOFF.md` first in a new session, then `.transient-learning-map/orientation.md`.
 
+## Profiles: keep agent copies away from the installed copy
+
+The default profile is the user's installed copy: `~/Applications/Spacedock*.app`, registry and settings in `~/Library/Application Support/Spacedock/`, bundle ids `dev.lubelski.spacedock.<slug>`. Agents do not touch it. For anything you build and run, pass `--profile NAME` on every command (or export `SPACEDOCK_PROFILE=NAME`). A profile has its own bundle ids (`dev.lubelski.spacedock.<profile>.<slug>`), its own registry and settings, and its bundles under `~/Library/Application Support/Spacedock/profiles/<profile>/Applications/`. Its apps carry a `(profile)` name suffix, a badge on the icon, and open in the background without taking focus. A running app reads its profile from Info.plist, so a forgotten environment variable cannot cross profiles. Quit a profile's apps with `Spacedock quit --profile NAME` when done.
+
+```sh
+export SPACEDOCK_PROFILE=dev
+swift build -c release
+.build/release/Spacedock add --name Hoard --color "#0F766E" --folder ~/dev/hoard
+.build/release/Spacedock restart hoard      # launches in the background
+.build/release/Spacedock quit
+```
+
+The user can assign a profile's apps to a Space of their own once, through the Dock tile's Options menu, and macOS keeps honoring it because the bundle ids are stable. Pass `--foreground` to a profile app to let it activate.
+
 ## Build and run
 
 ```sh
@@ -12,7 +26,8 @@ swift build -c release
 open ~/Applications/Spacedock/NAME.app
 .build/release/Spacedock install        # the prime app, ~/Applications/Spacedock.app
 .build/release/Spacedock regenerate     # after every rebuild: rewrites prime and all installed bundles
-.build/release/Spacedock restart [SLUG ...]   # quit running apps, regenerate, relaunch them (prime too)
+.build/release/Spacedock restart [SLUG ...]   # quit running apps, regenerate, relaunch them (prime too); named ones launch even if stopped
+.build/release/Spacedock quit [SLUG ...]      # quit running apps (all, plus prime, with no names)
 .build/release/Spacedock list           # slug, color, running|stopped, folder, name
 .build/release/Spacedock set SLUG KEY=VALUE ...      # per-project override; ghostty.<key> for raw Ghostty config
 .build/release/Spacedock set --global KEY=VALUE ...  # edits settings.json

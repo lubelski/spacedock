@@ -9,6 +9,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     var terminals: [any TerminalPane] = []
     private var sigterm: DispatchSourceSignal?
     private var quitting = false
+    /// Non-default profiles open without taking focus. `--foreground` opts out.
+    private var launchesInBackground: Bool {
+        Profile.current.launchesInBackground && !CommandLine.arguments.contains("--foreground")
+    }
 
     init(project: Project, settings: Settings) {
         self.project = project
@@ -20,7 +24,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         installMenu()
         installSignalHandlers()
         openTerminalWindow()
-        NSApp.activate(ignoringOtherApps: true)
+        if !launchesInBackground { NSApp.activate(ignoringOtherApps: true) }
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
@@ -69,7 +73,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             contentRect: NSRect(x: 0, y: 0, width: 900, height: 600),
             styleMask: [.titled, .closable, .miniaturizable, .resizable],
             backing: .buffered, defer: false)
-        window.title = project.name
+        window.title = project.displayName
         window.subtitle = project.folderURL.path.replacingOccurrences(of: NSHomeDirectory(), with: "~")
         window.delegate = self
         window.isReleasedWhenClosed = false
@@ -116,7 +120,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         } else {
             window.center()
         }
-        window.makeKeyAndOrderFront(nil)
+        if launchesInBackground { window.orderFront(nil) } else { window.makeKeyAndOrderFront(nil) }
         windows.append(window)
         terminals.append(terminal)
     }

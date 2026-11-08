@@ -27,8 +27,8 @@ enum Generator {
 
     /// The prime app: menu bar control panel, no Dock tile, bundle id without a slug.
     static func primeSpec() -> Spec {
-        Spec(name: "Spacedock",
-             bundleIdentifier: Project.bundleIDPrefix,
+        Spec(name: "Spacedock" + Profile.current.nameSuffix,
+             bundleIdentifier: Profile.current.bundlePrefix,
              executableName: "spacedock",
              color: NSColor(hex: "#334155") ?? .darkGray,
              glyph: "S",
@@ -37,7 +37,7 @@ enum Generator {
     }
 
     static func generate(project: Project, outputDirectory: URL) throws -> URL {
-        try generate(Spec(name: project.name,
+        try generate(Spec(name: project.displayName,
                           bundleIdentifier: project.bundleIdentifier,
                           executableName: project.slug,
                           color: project.color,
@@ -96,6 +96,7 @@ enum Generator {
 
         // Icon.
         try IconRenderer.writeICNS(color: spec.color, glyph: spec.glyph, slug: spec.executableName,
+                                   badge: Profile.current.isDefault ? nil : Profile.current.name,
                                    to: resources.appendingPathComponent("AppIcon.icns"))
 
         // Info.plist.
@@ -115,6 +116,7 @@ enum Generator {
             "NSPrincipalClass": "NSApplication",
             "NSAppleScriptEnabled": true,
         ]
+        if !Profile.current.isDefault { plist[Profile.plistKey] = Profile.current.name }
         plist.merge(spec.extraPlist) { _, new in new }
         let plistData = try PropertyListSerialization.data(fromPropertyList: plist, format: .xml, options: 0)
         try plistData.write(to: contents.appendingPathComponent("Info.plist"))
@@ -148,7 +150,7 @@ enum Generator {
 /// Renders a project icon: a rounded square in the project color with the
 /// project's initial, written out as an `.icns` through `iconutil`.
 enum IconRenderer {
-    static func writeICNS(color: NSColor, glyph: String, slug: String, to url: URL) throws {
+    static func writeICNS(color: NSColor, glyph: String, slug: String, badge: String? = nil, to url: URL) throws {
         let fm = FileManager.default
         let iconset = fm.temporaryDirectory.appendingPathComponent("\(slug)-\(UUID().uuidString).iconset")
         try fm.createDirectory(at: iconset, withIntermediateDirectories: true)
@@ -162,13 +164,13 @@ enum IconRenderer {
             ("icon_512x512", 512), ("icon_512x512@2x", 1024),
         ]
         for s in sizes {
-            let png = try render(color: color, glyph: glyph, pixels: s.px)
+            let png = try render(color: color, glyph: glyph, badge: badge, pixels: s.px)
             try png.write(to: iconset.appendingPathComponent("\(s.name).png"))
         }
         try Generator.run("/usr/bin/iconutil", ["--convert", "icns", "--output", url.path, iconset.path])
     }
 
-    static func render(color: NSColor, glyph: String, pixels: Int) throws -> Data {
+    static func render(color: NSColor, glyph: String, badge: String? = nil, pixels: Int) throws -> Data {
         guard let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: pixels, pixelsHigh: pixels,
                                          bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
                                          colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0),
@@ -196,6 +198,21 @@ enum IconRenderer {
         let origin = CGPoint(x: rect.midX - textSize.width / 2,
                              y: rect.midY - textSize.height / 2 + rect.height * 0.02)
         str.draw(at: origin)
+
+        // Profile badge: a dark band across the bottom with the profile name,
+        // so a development copy never passes for the installed one.
+        if let badge, pixels >= 64 {
+            let band = CGRect(x: rect.minX, y: rect.minY, width: rect.width, height: rect.height * 0.26)
+            let bandPath = NSBezierPath(roundedRect: band, xRadius: rect.width * 0.22, yRadius: rect.height * 0.22)
+            bandPath.appendRect(CGRect(x: band.minX, y: band.midY, width: band.width, height: band.height / 2))
+            NSColor.black.withAlphaComponent(0.72).setFill()
+            bandPath.fill()
+            let bfont = NSFont.systemFont(ofSize: band.height * 0.55, weight: .bold)
+            let battrs: [NSAttributedString.Key: Any] = [.font: bfont, .foregroundColor: NSColor.white]
+            let bstr = NSAttributedString(string: badge.uppercased(), attributes: battrs)
+            let bsize = bstr.size()
+            bstr.draw(at: CGPoint(x: band.midX - bsize.width / 2, y: band.midY - bsize.height / 2))
+        }
 
         NSGraphicsContext.restoreGraphicsState()
         guard let data = rep.representation(using: .png, properties: [:]) else {

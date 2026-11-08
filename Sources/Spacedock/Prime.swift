@@ -58,7 +58,9 @@ final class ProjectsModel: ObservableObject {
             do { _ = try Generator.generate(project: p, outputDirectory: Registry.installDirectory) }
             catch { lastError = "\(p.name): \(error)"; return }
         }
-        NSWorkspace.shared.openApplication(at: url, configuration: NSWorkspace.OpenConfiguration()) { [weak self] _, error in
+        let config = NSWorkspace.OpenConfiguration()
+        config.activates = !Profile.current.launchesInBackground
+        NSWorkspace.shared.openApplication(at: url, configuration: config) { [weak self] _, error in
             if let error { Task { @MainActor in self?.lastError = "\(p.name): \(error.localizedDescription)" } }
         }
     }
@@ -217,7 +219,7 @@ final class PrimeDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             let w = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 640, height: 480),
                              styleMask: [.titled, .closable, .miniaturizable, .resizable],
                              backing: .buffered, defer: false)
-            w.title = "Spacedock"
+            w.title = "Spacedock" + Profile.current.nameSuffix
             w.isReleasedWhenClosed = false
             w.contentViewController = NSHostingController(rootView: ControlPanelView(model: model))
             // Center on the screen that holds the menu bar the user clicked,
@@ -230,8 +232,12 @@ final class PrimeDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             panel = w
         }
         model.reload()
-        NSApp.activate(ignoringOtherApps: true)
-        panel?.makeKeyAndOrderFront(nil)
+        if Profile.current.launchesInBackground {
+            panel?.orderFront(nil)
+        } else {
+            NSApp.activate(ignoringOtherApps: true)
+            panel?.makeKeyAndOrderFront(nil)
+        }
     }
 }
 

@@ -20,7 +20,7 @@ struct Settings: Codable {
     /// ghostty emulator reads them. See https://ghostty.org/docs/config/reference
     var ghostty: [String: String] = [:]
 
-    static let fileURL = Registry.supportDirectory.appendingPathComponent("settings.json")
+    static var fileURL: URL { Registry.supportDirectory.appendingPathComponent("settings.json") }
 
     init() {}
 

@@ -35,10 +35,15 @@ An empty value removes an override. Changes apply at the project's next launch. 
 
 Run `.build/release/Spacedock` with no arguments to open the app outside a bundle with a default project.
 
+## Profiles
+
+`--profile NAME` (or `SPACEDOCK_PROFILE`) on any command gives a separate Spacedock: its own bundle ids, registry, settings, and bundles under `~/Library/Application Support/Spacedock/profiles/NAME/`. Its apps carry a name suffix and an icon badge and launch without taking focus. Development copies live in a profile so they never collide with the installed one.
+
 ## Layout
 
 - `Sources/Spacedock/Project.swift`: the project definition and how the app reads it from its bundle.
 - `Sources/Spacedock/Generator.swift`: writes the bundle, Info.plist, and icon.
+- `Sources/Spacedock/Profile.swift`: which Spacedock this is; paths and bundle id prefix follow it.
 - `Sources/Spacedock/Registry.swift`: the project list and install directory.
 - `Sources/Spacedock/Settings.swift`: window-layer settings.
 - `Sources/Spacedock/Pane.swift`: the `TerminalPane` protocol and its SwiftTerm and libghostty implementations.
