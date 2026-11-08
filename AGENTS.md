@@ -64,4 +64,5 @@ The CLI should let someone do everything from an agent or a terminal. The UI sho
 - Commit as you work. Small, coherent commits after meaningful milestones.
 - Store research in `research/`. Date findings, link sources, separate verified observations from inferences.
 - Keep the learning map in `.transient-learning-map/` current. It is gitignored.
+- Testing keys and windows without Accessibility: `scripts/keypost.swift` posts a key press to a pid (the app must be frontmost, so bring it forward with `open`, post, then hand focus back with `osascript -e 'tell application "NAME" to activate'`); `scripts/wins.swift` lists an app's windows by owner name for counting or `screencapture -l <id>`. Both are one `swiftc -O` away. Use them on a profile, never on the user's installed apps.
 - Do not claim behavior was tested from documentation alone. Dock, Cmd-Tab, and Spaces behavior must be observed, by the agent where a screenshot can show it, or by the user where it is interactive.
