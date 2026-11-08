@@ -15,6 +15,26 @@ protocol TerminalPane: NSView {
     var onShellExit: (() -> Void)? { get set }
     var onTitle: ((String) -> Void)? { get set }
     var onDirectory: ((String) -> Void)? { get set }
+    /// A window-level request from the emulator's own keybindings: new
+    /// window, close, quit, fullscreen. Ghostty emits these for Cmd-N,
+    /// Cmd-Shift-W, Cmd-Q and friends; SwiftTerm never does.
+    var onWindowRequest: ((WindowRequest) -> Void)? { get set }
+    /// Asks the emulator to run one of its own binding actions by name
+    /// (Ghostty: `new_window`, `quit`, `copy_to_clipboard`, ...). Returns
+    /// false when the emulator has no such action. Used by the
+    /// `--binding-action` debug argument so agents can drive keybinding
+    /// paths without a keyboard.
+    func runBindingAction(_ name: String) -> Bool
+}
+
+enum WindowRequest {
+    case newWindow
+    case closeWindow
+    case quit
+    case toggleFullscreen
+    /// Tabs and splits do not exist yet; the window layer decides what to do.
+    case newTab
+    case newSplit
 }
 
 enum PaneFactory {
@@ -36,7 +56,10 @@ final class SwiftTermPane: NSView, TerminalPane, LocalProcessTerminalViewDelegat
     var onShellExit: (() -> Void)?
     var onTitle: ((String) -> Void)?
     var onDirectory: ((String) -> Void)?
+    var onWindowRequest: ((WindowRequest) -> Void)?
     let inner: LocalProcessTerminalView
+
+    func runBindingAction(_ name: String) -> Bool { false }
 
     init(frame: NSRect, settings: Settings, background: NSColor) {
         inner = LocalProcessTerminalView(frame: NSRect(origin: .zero, size: frame.size),
@@ -84,10 +107,12 @@ final class SwiftTermPane: NSView, TerminalPane, LocalProcessTerminalViewDelegat
 /// The exec backend owns the pty. Closing the surface closes the pty, which
 /// hangs up the shell, so there is no pid to signal from here.
 final class GhosttyPane: AppTerminalView, TerminalPane,
-                         TerminalSurfaceTitleDelegate, TerminalSurfacePwdDelegate, TerminalSurfaceCloseDelegate {
+                         TerminalSurfaceTitleDelegate, TerminalSurfacePwdDelegate, TerminalSurfaceCloseDelegate,
+                         TerminalSurfaceWindowActionDelegate {
     var onShellExit: (() -> Void)?
     var onTitle: ((String) -> Void)?
     var onDirectory: ((String) -> Void)?
+    var onWindowRequest: ((WindowRequest) -> Void)?
     private var shellAlive = false
     private let ghosttyController: TerminalController
 
@@ -122,6 +147,8 @@ final class GhosttyPane: AppTerminalView, TerminalPane,
         super.init(frame: frame)
         delegate = self
         controller = ghosttyController
+        // quit and close_all_windows are addressed to the app, not the surface.
+        ghosttyController.windowActionDelegate = self
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
@@ -136,15 +163,31 @@ final class GhosttyPane: AppTerminalView, TerminalPane,
 
     var isShellRunning: Bool { shellAlive }
 
-    /// Freeing the surface closes the pty. Removing the view from its window
-    /// is what the package's lifecycle hooks key on.
+    /// Dropping the controller tears the surface down, which frees the pty
+    /// and hangs up the shell. Removing the view alone does not: the package
+    /// keeps the surface across detach and reattach.
     func hangUp() {
         shellAlive = false
-        removeFromSuperview()
+        controller = nil
     }
 
     func terminalDidChangeTitle(_ title: String) { onTitle?(title) }
     func terminalDidChangeWorkingDirectory(_ path: String) { onDirectory?(path) }
+
+    func runBindingAction(_ name: String) -> Bool { performBindingAction(name) }
+
+    /// Ghostty's keybindings are the authority for shortcuts. The pane
+    /// forwards what it cannot do itself.
+    func terminalDidRequestWindowAction(_ action: TerminalWindowAction) {
+        switch action {
+        case .newWindow: onWindowRequest?(.newWindow)
+        case .newTab: onWindowRequest?(.newTab)
+        case .newSplit: onWindowRequest?(.newSplit)
+        case .closeWindow, .closeTab: onWindowRequest?(.closeWindow)
+        case .closeAllWindows, .quit: onWindowRequest?(.quit)
+        case .toggleFullscreen, .toggleMaximize: onWindowRequest?(.toggleFullscreen)
+        }
+    }
     func terminalDidClose(processAlive: Bool) {
         shellAlive = false
         onShellExit?()

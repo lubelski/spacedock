@@ -25,6 +25,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         installSignalHandlers()
         openTerminalWindow()
         if !launchesInBackground { NSApp.activate(ignoringOtherApps: true) }
+        // Debug: `--args --binding-action new_window` runs a Ghostty binding
+        // action 2 s after launch, so the keybinding path can be exercised
+        // from a script without pressing keys.
+        let args = CommandLine.arguments
+        if let i = args.firstIndex(of: "--binding-action"), i + 1 < args.count {
+            let name = args[i + 1]
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2) { [weak self] in
+                guard let pane = self?.terminals.first else { return }
+                let ok = pane.runBindingAction(name)
+                NSLog("Spacedock: binding action \(name) \(ok ? "accepted" : "rejected")")
+            }
+        }
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
@@ -57,8 +69,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         let live = terminals.filter { $0.isShellRunning }
         if live.isEmpty { return .terminateNow }
-        quitting = true
         for t in live { t.hangUp() }
+        // A ghostty pane hangs up synchronously (its pty closes with the
+        // surface), so there may be nothing left to wait for.
+        if terminals.allSatisfy({ !$0.isShellRunning }) { return .terminateNow }
+        quitting = true
         DispatchQueue.main.asyncAfter(deadline: .now() + 2) { [weak self] in
             guard let self, self.quitting else { return }
             NSApp.reply(toApplicationShouldTerminate: true)
@@ -106,6 +121,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         terminal.onShellExit = { [weak self, weak terminal] in
             guard let self, let terminal else { return }
             self.shellExited(terminal)
+        }
+        // Requests arrive from the emulator's callback, often inside a
+        // main-queue block. Hop to the run loop first: terminate may answer
+        // terminateLater and spin a nested loop that cannot drain the queue
+        // it was called from (see installSignalHandlers).
+        terminal.onWindowRequest = { [weak self, weak window] request in
+            RunLoop.main.perform {
+                guard let self else { return }
+                switch request {
+                case .newWindow, .newTab, .newSplit: self.openTerminalWindow()
+                case .closeWindow: window?.performClose(nil)
+                case .quit: NSApp.terminate(nil)
+                case .toggleFullscreen: window?.toggleFullScreen(nil)
+                }
+            }
         }
         container.addSubview(terminal)
 

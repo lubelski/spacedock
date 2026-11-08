@@ -43,6 +43,8 @@ Window settings (font, padding, cursor style, scrollback, emulator) are read at 
 
 The prime app runs as a menu bar item (`LSUIElement`, bundle id `dev.lubelski.spacedock`, role from the `SpacedockRole` Info.plist key). Its menu lists projects with a running indicator and launches or activates them. `open ~/Applications/Spacedock.app` while it runs, or launch it with `--args --panel`, shows the control panel: project list with launch, show, quit, restart, regenerate, remove; an add form; the settings form. Project windows stay in their own apps.
 
+Keyboard shortcuts: Ghostty's keybindings are the authority. The ghostty pane reports a bound key as handled before the menu bar sees it, so Cmd-N, Cmd-Shift-W, Cmd-Q and the rest are Ghostty actions, forwarded through `TerminalSurfaceWindowActionDelegate` (our addition to libghostty-spm) to `AppDelegate`, which opens or closes windows and quits. The menu bar items exist for discoverability; their key equivalents fire only for the swiftterm pane. Users rebind with raw `ghostty.keybind` settings. To exercise a keybinding path without a keyboard, launch a profile app with `--args --binding-action new_window` (or `quit`, `close_window`); the action runs 2 s after launch.
+
 Run `.build/release/Spacedock` with no arguments to open the shell outside a bundle with a default project.
 
 Stop a generated app with Cmd-Q, `kill <pid>`, or `osascript -e 'tell application id "dev.lubelski.spacedock.SLUG" to quit'`. All three send SIGHUP to the shells and wait up to 2 s.
