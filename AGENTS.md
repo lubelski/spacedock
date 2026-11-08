@@ -27,7 +27,7 @@ Stop a generated app with Cmd-Q, `kill <pid>`, or `osascript -e 'tell applicatio
 
 ## Issues
 
-- Work is tracked in GitHub issues on `lubelski/spacedock`. Use `gh issue list` and `gh issue view`.
+- Work is tracked in the GitHub Project [Spacedock](https://github.com/users/lubelski/projects/3) (number 3, owner `lubelski`), whose items are issues on `lubelski/spacedock`. Use `gh issue list`, `gh issue view`, and `gh project item-list 3 --owner lubelski`. Add new issues to the project with `gh project item-add 3 --owner lubelski --url <issue url>`.
 - Issues express intent and are written by or with the user. Record divergence in comments rather than rewriting intent.
 
 ## Working practices

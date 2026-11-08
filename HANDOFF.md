@@ -55,7 +55,7 @@ In the order the agent would take them. The user has not confirmed this order.
 
 ## Issue tracking
 
-GitHub issues on `lubelski/spacedock`, one per open thread above. Decided 2026-11-08.
+GitHub Project https://github.com/users/lubelski/projects/3, whose items are issues on `lubelski/spacedock`, one per open thread above. Decided 2026-11-08.
 
 ## Gotchas
 
@@ -69,6 +69,7 @@ GitHub issues on `lubelski/spacedock`, one per open thread above. Decided 2026-1
 
 - GitHub: https://github.com/lubelski/spacedock
 
+- Project board: https://github.com/users/lubelski/projects/3
 - Issues: https://github.com/lubelski/spacedock/issues
 - SwiftTerm: https://github.com/migueldeicaza/SwiftTerm
 - libghostty packages: https://github.com/rijieli/libghostty-spm, https://github.com/Lakr233/libghostty-spm
