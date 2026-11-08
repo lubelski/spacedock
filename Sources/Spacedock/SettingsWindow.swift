@@ -148,7 +148,7 @@ struct SettingsWindowView: View {
     }
 
     var body: some View {
-        NavigationSplitView {
+        NavigationSplitView(columnVisibility: .constant(.all)) {
             VStack(spacing: 0) {
                 HStack(spacing: 6) {
                     Image(systemName: "magnifyingglass").foregroundStyle(.secondary).font(.callout)
@@ -173,6 +173,7 @@ struct SettingsWindowView: View {
                 .listStyle(.sidebar)
             }
             .navigationSplitViewColumnWidth(min: 180, ideal: 200, max: 240)
+            .toolbar(removing: .sidebarToggle)
         } detail: {
             Group {
                 if searching {
