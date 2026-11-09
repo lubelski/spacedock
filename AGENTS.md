@@ -61,7 +61,7 @@ The CLI should let someone do everything from an agent or a terminal. The UI sho
 
 ## Working practices
 
-- Work in a worktree under `.wt/` (for example, `.wt/<branch>/`), not in the primary checkout. The primary checkout stays on `main`.
+- Work in a worktree under `.wt/` (for example, `.wt/<branch>/`), not in the primary checkout. Keep the primary checkout on the latest `main` unless the user says otherwise. Pull after merges.
 - Commit and push as you work. Small, coherent commits after meaningful milestones.
 - Open a pull request when the work is ready for review. Do not merge without the user's authorization.
 - Every PR follows `.github/pull_request_template.md`: Overview, Visual Preview, Changes, Notes, in that order. The `pull-request` skill (`.claude/skills/pull-request/SKILL.md`) walks through opening and updating one.
