@@ -325,7 +325,7 @@ final class PrimeDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     @objc func showPanel() {
         if panel == nil {
-            let w = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 820, height: 560),
+            let w = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 520, height: 560),
                              styleMask: [.titled, .closable, .miniaturizable, .resizable],
                              backing: .buffered, defer: false)
             w.title = "Spacedock" + Profile.current.nameSuffix
@@ -337,8 +337,7 @@ final class PrimeDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 let f = screen.visibleFrame
                 w.setFrameOrigin(NSPoint(x: f.midX - w.frame.width / 2, y: f.midY - w.frame.height / 2))
             }
-            // New name: the old saved frame was too narrow for the edit pane.
-            w.setFrameAutosaveName("control-panel-2")
+            w.setFrameAutosaveName("control-panel")
             panel = w
         }
         model.reload()
@@ -353,25 +352,26 @@ final class PrimeDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
 // MARK: - Project management
 
-/// The project list beside an edit pane for the selected project. `+`
-/// registers a placeholder row and selects it, so the pane opens on it.
-/// The gear opens the separate settings window.
+/// A vertical list of projects. `+` registers a placeholder row and opens
+/// its editor in a sheet; double-click or Edit… opens the editor for any
+/// row. The gear opens the separate settings window.
 struct ControlPanelView: View {
     @ObservedObject var model: ProjectsModel
     @State private var selection: String?
+    /// The slug whose editor sheet is open.
+    @State private var editing: String?
 
     var showSettings: () -> Void
-
-    private var selected: Project? { selection.flatMap { model.registry.project(slug: $0) } }
 
     private func takeRequestedSelection() {
         guard let slug = model.requestedSelection else { return }
         selection = slug
+        editing = slug
         model.requestedSelection = nil
     }
 
     private func addProject() {
-        if let slug = model.addNew() { selection = slug }
+        if let slug = model.addNew() { selection = slug; editing = slug }
     }
 
     var body: some View {
@@ -393,7 +393,7 @@ struct ControlPanelView: View {
                         NSWorkspace.shared.activateFileViewerSelecting([Registry.installDirectory])
                     }
                 } label: { Image(systemName: "ellipsis.circle") }
-                .menuStyle(.borderlessButton).frame(width: 28)
+                .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
                 Button(action: showSettings) { Image(systemName: "gearshape") }
                     .keyboardShortcut(",", modifiers: .command)
                     .help("Settings")
@@ -402,48 +402,46 @@ struct ControlPanelView: View {
 
             Divider()
 
-            HStack(spacing: 0) {
-                Group {
-                    if model.registry.projects.isEmpty {
-                        VStack(spacing: 10) {
-                            Image(systemName: "square.grid.2x2").font(.system(size: 36)).foregroundStyle(.tertiary)
-                            Text("No projects yet").font(.headline)
-                            Text("Each project becomes its own app with a Dock tile, a Cmd-Tab entry, and a Space.")
-                                .font(.callout).foregroundStyle(.secondary).multilineTextAlignment(.center)
-                            Button("New Project", action: addProject).padding(.top, 4)
-                        }
-                        .frame(maxWidth: 320, maxHeight: .infinity)
-                        .frame(maxWidth: .infinity)
-                    } else {
-                        List(selection: $selection) {
-                            ForEach(model.registry.projects, id: \.slug) { p in
-                                ProjectRow(model: model, project: p)
-                                    .tag(p.slug)
-                                    .listRowSeparator(.visible)
-                            }
-                        }
-                        .listStyle(.inset)
-                        .scrollContentBackground(.hidden)
+            if model.registry.projects.isEmpty {
+                VStack(spacing: 10) {
+                    Image(systemName: "square.grid.2x2").font(.system(size: 36)).foregroundStyle(.tertiary)
+                    Text("No projects yet").font(.headline)
+                    Text("Each project becomes its own app with a Dock tile, a Cmd-Tab entry, and a Space.")
+                        .font(.callout).foregroundStyle(.secondary).multilineTextAlignment(.center)
+                    Button("New Project", action: addProject).padding(.top, 4)
+                }
+                .frame(maxWidth: 320, maxHeight: .infinity)
+                .frame(maxWidth: .infinity)
+            } else {
+                List(selection: $selection) {
+                    ForEach(model.registry.projects, id: \.slug) { p in
+                        ProjectRow(model: model, project: p, edit: { editing = p.slug })
+                            .tag(p.slug)
+                            .listRowSeparator(.visible)
                     }
                 }
-                .frame(minWidth: 440, maxWidth: .infinity, maxHeight: .infinity)
-
-                Divider()
-
-                Group {
-                    if let p = selected {
-                        ProjectEditor(model: model, project: p, selection: $selection).id(p.slug)
-                    } else {
-                        Text("Select a project to edit it")
-                            .font(.callout).foregroundStyle(.secondary)
-                            .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    }
-                }
-                .frame(width: 330)
-                .frame(maxHeight: .infinity)
+                .listStyle(.inset)
+                .scrollContentBackground(.hidden)
+                .contextMenu(forSelectionType: String.self, menu: { _ in }, primaryAction: { slugs in
+                    if let slug = slugs.first { editing = slug }
+                })
             }
         }
-        .frame(minWidth: 780, minHeight: 380)
+        .frame(minWidth: 460, minHeight: 360)
+        .sheet(isPresented: Binding(get: { editing != nil }, set: { if !$0 { editing = nil } })) {
+            if let slug = editing, let p = model.registry.project(slug: slug) {
+                VStack(spacing: 0) {
+                    ProjectEditor(model: model, project: p, slug: $editing)
+                    Divider()
+                    HStack {
+                        Spacer()
+                        Button("Done") { editing = nil }.keyboardShortcut(.defaultAction)
+                    }
+                    .padding(12)
+                }
+                .frame(width: 440, height: 380)
+            }
+        }
         .onAppear(perform: takeRequestedSelection)
         .onChange(of: model.requestedSelection) { _, _ in takeRequestedSelection() }
         .overlay(alignment: .bottom) {
@@ -465,6 +463,7 @@ struct ControlPanelView: View {
 struct ProjectRow: View {
     @ObservedObject var model: ProjectsModel
     let project: Project
+    var edit: () -> Void
 
     private var running: Bool { model.isRunning(project) }
 
@@ -498,6 +497,8 @@ struct ProjectRow: View {
                 .frame(width: 64)
                 .disabled(!running && !project.isLaunchable)
             Menu {
+                Button("Edit…", action: edit)
+                Divider()
                 Button("Restart") { model.restart(project) }.disabled(!project.isLaunchable)
                 Button("Quit") { model.quit(project) }.disabled(!running)
                 Button("Regenerate") { model.regenerate(project) }.disabled(!project.isLaunchable)
@@ -512,36 +513,37 @@ struct ProjectRow: View {
                 Divider()
                 Button("Remove", role: .destructive) { model.remove(project) }
             } label: { Image(systemName: "ellipsis.circle") }
-            .menuStyle(.borderlessButton).frame(width: 28)
+            .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
         }
         .padding(.vertical, 6)
     }
 }
 
-/// Name, color, and folder of one project, saved as they change: the name
+/// Name, color, and folder of one project, shown in a sheet and saved as they change: the name
 /// on Return or when the field loses focus, the color after the picker
 /// settles, the folder when chosen. Terminal overrides stay in their sheet.
 struct ProjectEditor: View {
     @ObservedObject var model: ProjectsModel
     let project: Project
-    @Binding var selection: String?
+    /// The edited slug; updated when a rename changes it.
+    @Binding var slug: String?
     @State private var name: String
     @State private var color: Color
     @State private var colorCommit: Task<Void, Never>?
     @State private var showingTerminalSettings = false
     @FocusState private var nameFocused: Bool
 
-    init(model: ProjectsModel, project: Project, selection: Binding<String?>) {
+    init(model: ProjectsModel, project: Project, slug: Binding<String?>) {
         self.model = model
         self.project = project
-        _selection = selection
+        _slug = slug
         _name = State(initialValue: project.name)
         _color = State(initialValue: Color(nsColor: project.color))
     }
 
     /// Applies an edit and follows the slug if a rename changed it.
     private func commit(_ change: (inout Project) -> Void) {
-        if let slug = model.edit(project.slug, change), slug != project.slug { selection = slug }
+        if let new = model.edit(project.slug, change), new != project.slug { slug = new }
     }
 
     private func commitName() {
