@@ -24,6 +24,28 @@ struct Project: Codable {
 
     var folderURL: URL { URL(fileURLWithPath: (folder as NSString).expandingTildeInPath) }
 
+    /// Why the project cannot launch. Empty when it can. A project with
+    /// problems stays registered; only launching is blocked.
+    var problems: [String] {
+        var out: [String] = []
+        if name.trimmingCharacters(in: .whitespaces).isEmpty { out.append("Name is empty") }
+        if NSColor(hex: colorHex) == nil { out.append("Color is not #RRGGBB") }
+        if folder.isEmpty {
+            out.append("No folder chosen")
+        } else {
+            var isDir: ObjCBool = false
+            if !FileManager.default.fileExists(atPath: folderURL.path, isDirectory: &isDir) || !isDir.boolValue {
+                out.append("Folder not found")
+            }
+        }
+        return out
+    }
+
+    var isLaunchable: Bool { problems.isEmpty }
+
+    /// Colors handed to new projects, first unused one wins.
+    static let palette = ["#3B82F6", "#0F766E", "#D97706", "#7C3AED", "#DC2626", "#DB2777", "#65A30D", "#0891B2"]
+
     /// Reads `project.json` from the running bundle. Returns nil when the
     /// binary runs outside a generated bundle (e.g. `swift run`).
     static func fromMainBundle() -> Project? {

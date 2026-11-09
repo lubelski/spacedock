@@ -6,6 +6,13 @@ import Foundation
 // As a command line tool:
 //   Spacedock add --name NAME --color #RRGGBB --folder PATH [--set KEY=VALUE ...] [--ghostty KEY=VALUE ...]
 //       registers the project and installs ~/Applications/Spacedock/NAME.app.
+//   Spacedock new
+//       registers a placeholder, "New Project" with no folder, and prints
+//       its slug. It cannot launch until `edit` gives it a folder.
+//   Spacedock edit SLUG [--name NAME] [--color #RRGGBB] [--folder PATH]
+//       renames, recolors, or moves a project and rewrites its bundle when
+//       the result can launch. The slug follows the name until the bundle
+//       is first installed, then stays fixed. `--folder ""` clears it.
 //   Spacedock set SLUG KEY=VALUE ...
 //   Spacedock set --global KEY=VALUE ...
 //       per-project or global settings. KEY is fontName, fontSize, padding,
@@ -28,7 +35,8 @@ import Foundation
 //       quits the named running project apps, or every running one plus the
 //       prime app when no names are given. Agents use it to clean up a profile.
 //   Spacedock list
-//       one line per project: slug, color, running or stopped, folder, name.
+//       one line per project: slug, color, running, stopped, or invalid
+//       (cannot launch; `show` says why), folder, name.
 //   Spacedock remove SLUG
 //   Spacedock generate --name NAME --color #RRGGBB --folder PATH [--out DIR]
 //       one-off bundle, not registered (default DIR is ./out).
@@ -51,6 +59,8 @@ func usage() -> Never {
     fail("""
     usage:
       Spacedock add --name NAME [--color #RRGGBB] [--folder PATH] [--set KEY=VALUE ...] [--ghostty KEY=VALUE ...]
+      Spacedock new
+      Spacedock edit SLUG [--name NAME] [--color #RRGGBB] [--folder PATH]
       Spacedock set SLUG KEY=VALUE ...
       Spacedock set --global KEY=VALUE ...
       Spacedock show SLUG
@@ -175,6 +185,39 @@ do {
         print(try install(project).path)
         exit(0)
 
+    case "new":
+        var registry = try Registry.load()
+        let p = try registry.addNew()
+        try Settings().writeIfMissing()
+        print(p.slug)
+        exit(0)
+
+    case "edit":
+        var rest = Array(args.dropFirst())
+        guard !rest.isEmpty else { usage() }
+        let slug = rest.removeFirst()
+        var name: String?, color: String?, folder: String?
+        var it = rest.makeIterator()
+        while let a = it.next() {
+            switch a {
+            case "--name": guard let v = it.next() else { usage() }; name = v
+            case "--color": guard let v = it.next() else { usage() }; color = v
+            case "--folder": guard let v = it.next() else { usage() }; folder = v
+            default: usage()
+            }
+        }
+        if let color, NSColor(hex: color) == nil { fail("bad color \(color); use #RRGGBB", status: 64) }
+        var registry = try Registry.load()
+        guard registry.project(slug: slug) != nil else { fail("no project with slug \(slug)") }
+        let p = try registry.edit(slug: slug) { p in
+            if let name { p.name = name }
+            if let color { p.colorHex = color.uppercased() }
+            if let folder { p.folder = folder }
+        }
+        print("\(p.slug)\t\(p.colorHex)\t\(p.folder)\t\(p.name)")
+        for problem in p.problems { print("cannot launch: \(problem)") }
+        exit(0)
+
     case "install":
         try Settings().writeIfMissing()
         print(try installPrime().path)
@@ -183,7 +226,9 @@ do {
     case "regenerate":
         let registry = try Registry.load()
         print(try installPrime().path)
-        for p in registry.projects { print(try install(p).path) }
+        for p in registry.projects {
+            if p.isLaunchable { print(try install(p).path) } else { print("skipped \(p.slug): \(p.problems.joined(separator: ", "))") }
+        }
         exit(0)
 
     case "restart":
@@ -201,6 +246,7 @@ do {
                 print("quit \(p.displayName)")
                 toRelaunch.append(Registry.appURL(for: p))
             } else if !slugs.isEmpty {
+                guard p.isLaunchable else { print("cannot launch \(p.slug): \(p.problems.joined(separator: ", "))"); continue }
                 toRelaunch.append(Registry.appURL(for: p))
             }
         }
@@ -210,8 +256,9 @@ do {
             print("quit Spacedock\(Profile.current.nameSuffix)")
         }
         _ = try installPrime()
-        for p in registry.projects { _ = try install(p) }
-        print("regenerated \(registry.projects.count + 1) bundles")
+        let launchable = registry.projects.filter(\.isLaunchable)
+        for p in launchable { _ = try install(p) }
+        print("regenerated \(launchable.count + 1) bundles")
         if primeWasRunning != nil { toRelaunch.insert(Registry.primeAppURL, at: 0) }
         for url in toRelaunch {
             try Generator.run("/usr/bin/open", Profile.current.launchesInBackground ? ["-g", url.path] : [url.path])
@@ -253,6 +300,7 @@ do {
         let registry = try Registry.load()
         guard let p = registry.project(slug: slug) else { fail("no project with slug \(slug)") }
         print("\(p.name)\t\(p.colorHex)\t\(p.folder)")
+        for problem in p.problems { print("cannot launch: \(problem)") }
         print(describe(Settings.load().applying(p.settings, ghostty: p.ghostty)))
         exit(0)
 
@@ -277,7 +325,7 @@ do {
     case "list":
         let registry = try Registry.load()
         for p in registry.projects {
-            let state = running(p.bundleIdentifier) == nil ? "stopped" : "running"
+            let state = running(p.bundleIdentifier) != nil ? "running" : p.isLaunchable ? "stopped" : "invalid"
             print("\(p.slug)\t\(p.colorHex)\t\(state)\t\(p.folder)\t\(p.displayName)")
         }
         exit(0)
@@ -313,7 +361,10 @@ MainActor.assumeIsolated {
         let bundled = Project.fromMainBundle()
             ?? Project(name: "Shell", slug: "shell", colorHex: "#6B7280", folder: NSHomeDirectory())
         // The registry has the latest overrides; the bundle's copy is the identity.
-        let project = (try? Registry.load())?.project(slug: bundled.slug) ?? bundled
+        // An entry that cannot launch (cleared folder, empty name) falls back
+        // to the bundle's copy, which was valid when the bundle was written.
+        let registered = (try? Registry.load())?.project(slug: bundled.slug)
+        let project = registered.flatMap { $0.isLaunchable ? $0 : nil } ?? bundled
         delegate = AppDelegate(project: project, settings: Settings.load().applying(project.settings, ghostty: project.ghostty))
     }
     app.delegate = delegate
