@@ -15,7 +15,7 @@ enum Generator {
         var bundleIdentifier: String
         var executableName: String
         var color: NSColor
-        var glyph: String
+        var content: IconContent
         /// Written to `Resources/project.json` when present.
         var project: Project?
         /// Extra Info.plist keys, e.g. `LSUIElement` for the prime app.
@@ -31,7 +31,7 @@ enum Generator {
              bundleIdentifier: Profile.current.bundlePrefix,
              executableName: "spacedock",
              color: NSColor(hex: "#334155") ?? .darkGray,
-             glyph: "S",
+             content: .text("S"),
              project: nil,
              extraPlist: ["LSUIElement": true, primeRoleKey: primeRoleValue])
     }
@@ -41,7 +41,7 @@ enum Generator {
                           bundleIdentifier: project.bundleIdentifier,
                           executableName: project.slug,
                           color: project.color,
-                          glyph: String(project.name.prefix(1)).uppercased(),
+                          content: project.iconContent,
                           project: project),
                      outputDirectory: outputDirectory)
     }
@@ -95,7 +95,7 @@ enum Generator {
         }
 
         // Icon.
-        try IconRenderer.writeICNS(color: spec.color, glyph: spec.glyph, slug: spec.executableName,
+        try IconRenderer.writeICNS(color: spec.color, content: spec.content, slug: spec.executableName,
                                    badge: Profile.current.isDefault ? nil : Profile.current.name,
                                    to: resources.appendingPathComponent("AppIcon.icns"))
 
@@ -147,10 +147,12 @@ enum Generator {
     }
 }
 
-/// Renders a project icon: a rounded square in the project color with the
-/// project's initial, written out as an `.icns` through `iconutil`.
+/// Renders a project icon, written out as an `.icns` through `iconutil`.
+/// Every icon is a rounded square in the project color. Inside it sits the
+/// project's letters, or its image framed on a light plate, or its image
+/// filling the square inside a ring of the project color.
 enum IconRenderer {
-    static func writeICNS(color: NSColor, glyph: String, slug: String, badge: String? = nil, to url: URL) throws {
+    static func writeICNS(color: NSColor, content: IconContent, slug: String, badge: String? = nil, to url: URL) throws {
         let fm = FileManager.default
         let iconset = fm.temporaryDirectory.appendingPathComponent("\(slug)-\(UUID().uuidString).iconset")
         try fm.createDirectory(at: iconset, withIntermediateDirectories: true)
@@ -164,13 +166,19 @@ enum IconRenderer {
             ("icon_512x512", 512), ("icon_512x512@2x", 1024),
         ]
         for s in sizes {
-            let png = try render(color: color, glyph: glyph, badge: badge, pixels: s.px)
+            let png = try render(color: color, content: content, badge: badge, pixels: s.px)
             try png.write(to: iconset.appendingPathComponent("\(s.name).png"))
         }
         try Generator.run("/usr/bin/iconutil", ["--convert", "icns", "--output", url.path, iconset.path])
     }
 
-    static func render(color: NSColor, glyph: String, badge: String? = nil, pixels: Int) throws -> Data {
+    /// The icon as an image, for previews in the control panel.
+    static func image(color: NSColor, content: IconContent, pixels: Int = 128) -> NSImage? {
+        guard let data = try? render(color: color, content: content, pixels: pixels) else { return nil }
+        return NSImage(data: data)
+    }
+
+    static func render(color: NSColor, content: IconContent, badge: String? = nil, pixels: Int) throws -> Data {
         guard let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: pixels, pixelsHigh: pixels,
                                          bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
                                          colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0),
@@ -179,25 +187,49 @@ enum IconRenderer {
         }
         NSGraphicsContext.saveGraphicsState()
         NSGraphicsContext.current = ctx
+        ctx.imageInterpolation = .high
 
         let size = CGFloat(pixels)
         // macOS icon grid: the squircle occupies ~80% of the canvas.
         let inset = size * 0.10
         let rect = CGRect(x: inset, y: inset, width: size - 2 * inset, height: size - 2 * inset)
-        let path = NSBezierPath(roundedRect: rect, xRadius: rect.width * 0.22, yRadius: rect.height * 0.22)
+        let radius = rect.width * 0.22
+        let path = NSBezierPath(roundedRect: rect, xRadius: radius, yRadius: radius)
         color.setFill()
         path.fill()
 
-        let initial = glyph
-        let textColor: NSColor = color.luminance > 0.6 ? .black : .white
-        let font = NSFont.monospacedSystemFont(ofSize: rect.height * 0.62, weight: .semibold)
-        let attrs: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: textColor]
-        let str = NSAttributedString(string: initial, attributes: attrs)
-        let textSize = str.size()
-        // Center on the glyph box, nudged up slightly to account for descender space.
-        let origin = CGPoint(x: rect.midX - textSize.width / 2,
-                             y: rect.midY - textSize.height / 2 + rect.height * 0.02)
-        str.draw(at: origin)
+        switch content {
+        case .text(let text):
+            drawText(text, in: rect, color: color)
+        case .image(let picture, .framed):
+            // A light plate inset from the edge, its corners concentric with
+            // the squircle's. The ring of project color around it is what
+            // marks the icon as a Spacedock project.
+            let gap = rect.width * 0.12
+            let plate = rect.insetBy(dx: gap, dy: gap)
+            let plateRadius = max(radius - gap, plate.width * 0.08)
+            let platePath = NSBezierPath(roundedRect: plate, xRadius: plateRadius, yRadius: plateRadius)
+            NSColor.white.setFill()
+            platePath.fill()
+            NSGraphicsContext.saveGraphicsState()
+            platePath.addClip()
+            draw(picture, fitting: plate.insetBy(dx: plate.width * 0.10, dy: plate.height * 0.10))
+            NSGraphicsContext.restoreGraphicsState()
+            NSColor.black.withAlphaComponent(0.10).setStroke()
+            platePath.lineWidth = max(1, size / 256)
+            platePath.stroke()
+        case .image(let picture, .fill):
+            NSGraphicsContext.saveGraphicsState()
+            path.addClip()
+            draw(picture, filling: rect)
+            NSGraphicsContext.restoreGraphicsState()
+            let ring = rect.width * 0.07
+            let ringRect = rect.insetBy(dx: ring / 2, dy: ring / 2)
+            let ringPath = NSBezierPath(roundedRect: ringRect, xRadius: radius - ring / 2, yRadius: radius - ring / 2)
+            ringPath.lineWidth = ring
+            color.setStroke()
+            ringPath.stroke()
+        }
 
         // Profile badge: a dark band across the bottom with the profile name,
         // so a development copy never passes for the installed one.
@@ -219,5 +251,39 @@ enum IconRenderer {
             throw Generator.Failure(description: "cannot encode icon PNG")
         }
         return data
+    }
+
+    /// Letters centered on their cap height, scaled down to fit the width:
+    /// one letter at 62% of the square's height, three at about 41%.
+    private static func drawText(_ text: String, in rect: CGRect, color: NSColor) {
+        let textColor: NSColor = color.luminance > 0.6 ? .black : .white
+        var font = NSFont.monospacedSystemFont(ofSize: rect.height * 0.62, weight: .semibold)
+        var str = NSAttributedString(string: text, attributes: [.font: font, .foregroundColor: textColor])
+        let maxWidth = rect.width * 0.74
+        if str.size().width > maxWidth {
+            font = NSFont.monospacedSystemFont(ofSize: font.pointSize * maxWidth / str.size().width, weight: .semibold)
+            str = NSAttributedString(string: text, attributes: [.font: font, .foregroundColor: textColor])
+        }
+        let width = str.size().width
+        // draw(at:) places the line box's bottom at the origin; the baseline
+        // sits |descender| above it.
+        let baseline = rect.midY - font.capHeight / 2
+        str.draw(at: CGPoint(x: rect.midX - width / 2, y: baseline + font.descender))
+    }
+
+    private static func draw(_ picture: NSImage, fitting box: CGRect) {
+        let s = picture.size
+        guard s.width > 0, s.height > 0 else { return }
+        let scale = min(box.width / s.width, box.height / s.height)
+        let w = s.width * scale, h = s.height * scale
+        picture.draw(in: CGRect(x: box.midX - w / 2, y: box.midY - h / 2, width: w, height: h))
+    }
+
+    private static func draw(_ picture: NSImage, filling box: CGRect) {
+        let s = picture.size
+        guard s.width > 0, s.height > 0 else { return }
+        let scale = max(box.width / s.width, box.height / s.height)
+        let w = s.width * scale, h = s.height * scale
+        picture.draw(in: CGRect(x: box.midX - w / 2, y: box.midY - h / 2, width: w, height: h))
     }
 }

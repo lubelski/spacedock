@@ -31,6 +31,7 @@ open ~/Applications/Spacedock/NAME.app
 .build/release/Spacedock list           # slug, color, running|stopped, folder, name
 .build/release/Spacedock new            # placeholder row, prints its slug; cannot launch until it has a folder
 .build/release/Spacedock edit SLUG [--name N] [--color #RRGGBB] [--folder PATH]   # slug follows the name until the bundle is first installed
+.build/release/Spacedock edit SLUG --avatar ABC | --image PATH [--image-style framed|fill]   # icon; "" clears
 .build/release/Spacedock set SLUG KEY=VALUE ...      # per-project override; ghostty.<key> for raw Ghostty config
 .build/release/Spacedock set --global KEY=VALUE ...  # edits settings.json
 .build/release/Spacedock show SLUG      # effective settings for one project
@@ -38,6 +39,8 @@ open ~/Applications/Spacedock/NAME.app
 ```
 
 `add` records the project in `~/Library/Application Support/Spacedock/projects.json` and installs `~/Applications/Spacedock/NAME.app`. `regenerate` rebuilds every registered bundle from the current binary. `generate --name ... [--out DIR]` still writes an unregistered one-off bundle (default `out/`).
+
+The icon is a rounded square in the project color. By default it shows up to three initials of the name (`machine-configuration-notes` is MCN, `Tau` is TAU, `Hoard` is H). `avatar` replaces them with up to three characters of your choosing. `image` replaces the letters with a picture: `edit --image` copies the file to `images/` in the support directory, and `framed` (default) draws it on a white plate inside the project color, `fill` covers the square with a ring of the project color. A missing image falls back to the letters. `IconRenderer` in `Generator.swift` draws all three; the panel rows and editor use the same renderer.
 
 The executable is a copy of the Spacedock binary. `Contents/Resources/project.json` holds name, slug, color, and folder. Bundle id is `dev.lubelski.spacedock.<slug>`. The bundle is ad-hoc signed.
 

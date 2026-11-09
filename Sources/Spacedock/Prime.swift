@@ -469,14 +469,14 @@ struct ProjectRow: View {
 
     var body: some View {
         HStack(spacing: 12) {
-            ZStack {
-                Circle().fill(Color(nsColor: project.color)).frame(width: 16, height: 16)
-                    .overlay(Circle().stroke(Color.primary.opacity(0.15)))
-                if running {
-                    Circle().fill(.white).frame(width: 5, height: 5)
+            ProjectIcon(project: project, size: 32)
+                .overlay(alignment: .bottomTrailing) {
+                    if running {
+                        Circle().fill(.green).frame(width: 9, height: 9)
+                            .overlay(Circle().stroke(Color(nsColor: .windowBackgroundColor), lineWidth: 2))
+                    }
                 }
-            }
-            .help(running ? "Running" : "Stopped")
+                .help(running ? "Running" : "Stopped")
             VStack(alignment: .leading, spacing: 2) {
                 Text(project.name.isEmpty ? "Untitled" : project.name).font(.headline)
                 if let problem = project.problems.first {
@@ -519,6 +519,31 @@ struct ProjectRow: View {
     }
 }
 
+/// The project's icon as the bundle draws it, rendered on demand. Keyed on
+/// what the icon depends on, so an edit redraws it and a refresh does not.
+struct ProjectIcon: View {
+    let project: Project
+    var size: CGFloat
+
+    @MainActor private static var cache: [String: NSImage] = [:]
+
+    private var image: NSImage? {
+        let key = [project.colorHex, project.avatarText, project.image ?? "", project.imageStyle?.rawValue ?? ""].joined(separator: "|")
+        if let hit = Self.cache[key] { return hit }
+        let img = IconRenderer.image(color: project.color, content: project.iconContent, pixels: 256)
+        Self.cache[key] = img
+        return img
+    }
+
+    var body: some View {
+        if let image {
+            Image(nsImage: image).resizable().interpolation(.high).frame(width: size, height: size)
+        } else {
+            RoundedRectangle(cornerRadius: size * 0.2).fill(Color(nsColor: project.color)).frame(width: size, height: size)
+        }
+    }
+}
+
 /// Name, color, and folder of one project, shown in a sheet and saved as they change: the name
 /// on Return or when the field loses focus, the color after the picker
 /// settles, the folder when chosen. Terminal overrides stay in their sheet.
@@ -530,8 +555,10 @@ struct ProjectEditor: View {
     @State private var name: String
     @State private var color: Color
     @State private var colorCommit: Task<Void, Never>?
+    @State private var avatar: String
     @State private var showingTerminalSettings = false
     @FocusState private var nameFocused: Bool
+    @FocusState private var avatarFocused: Bool
 
     init(model: ProjectsModel, project: Project, slug: Binding<String?>) {
         self.model = model
@@ -539,6 +566,7 @@ struct ProjectEditor: View {
         _slug = slug
         _name = State(initialValue: project.name)
         _color = State(initialValue: Color(nsColor: project.color))
+        _avatar = State(initialValue: project.avatar ?? "")
     }
 
     /// Applies an edit and follows the slug if a rename changed it.
@@ -549,6 +577,29 @@ struct ProjectEditor: View {
     private func commitName() {
         guard name.trimmingCharacters(in: .whitespaces) != project.name else { return }
         commit { $0.name = name }
+    }
+
+    private func commitAvatar() {
+        let a = avatar.trimmingCharacters(in: .whitespaces)
+        guard a != (project.avatar ?? "") else { return }
+        commit { $0.avatar = a }
+    }
+
+    private func chooseImage() {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = false
+        panel.allowedContentTypes = [.image]
+        panel.prompt = "Use Image"
+        panel.message = "Choose a logo or picture for the project icon. Spacedock keeps a copy."
+        if !project.folder.isEmpty { panel.directoryURL = project.folderURL }
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        do {
+            let copy = try Registry.importImage(url.path)
+            commit { $0.image = copy }
+        } catch {
+            model.lastError = "\(project.name): \(error)"
+        }
     }
 
     private func chooseFolder() {
@@ -586,6 +637,40 @@ struct ProjectEditor: View {
                     }
                 }
             }
+            Section {
+                HStack(alignment: .top, spacing: 16) {
+                    ProjectIcon(project: project, size: 72)
+                    VStack(alignment: .leading, spacing: 8) {
+                        if project.image == nil {
+                            TextField("Letters", text: $avatar, prompt: Text(Project.initials(name)))
+                                .focused($avatarFocused)
+                                .onSubmit(commitAvatar)
+                        }
+                        HStack(spacing: 6) {
+                            Button(project.image == nil ? "Choose Image…" : "Change Image…", action: chooseImage)
+                            if project.image != nil {
+                                Button("Remove Image") { commit { $0.image = nil } }
+                            }
+                        }
+                        if project.image != nil {
+                            Picker("Style", selection: Binding(
+                                get: { project.imageStyle ?? .framed },
+                                set: { style in commit { $0.imageStyle = style } })) {
+                                Text("Framed").tag(IconImageStyle.framed)
+                                Text("Fill").tag(IconImageStyle.fill)
+                            }
+                            .pickerStyle(.segmented)
+                        }
+                    }
+                }
+            } header: {
+                Text("Icon")
+            } footer: {
+                Text(project.image != nil
+                     ? "Framed puts the image on a light plate inside the project color. Fill covers the icon, with a ring of the project color."
+                     : "Up to \(Project.avatarLimit) characters. Empty uses the initials of the name.")
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
             if !project.problems.isEmpty {
                 Section {
                     ForEach(project.problems, id: \.self) { problem in
@@ -600,13 +685,17 @@ struct ProjectEditor: View {
                 Button("Terminal Settings…") { showingTerminalSettings = true }
             } footer: {
                 Text(model.isRunning(project)
-                     ? "Running. Name, color, and folder changes apply when the app next launches."
+                     ? "Running. Name, color, icon, and folder changes apply when the app next launches."
                      : "Changes save as you make them.")
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
         .formStyle(.grouped)
         .onChange(of: nameFocused) { _, focused in if !focused { commitName() } }
+        .onChange(of: avatarFocused) { _, focused in if !focused { commitAvatar() } }
+        .onChange(of: avatar) { _, value in
+            if value.count > Project.avatarLimit { avatar = String(value.prefix(Project.avatarLimit)) }
+        }
         .onChange(of: color) { _, newColor in
             colorCommit?.cancel()
             let hex = NSColor(newColor).hexString
@@ -616,7 +705,7 @@ struct ProjectEditor: View {
                 commit { $0.colorHex = hex }
             }
         }
-        .onDisappear(perform: commitName)
+        .onDisappear { commitName(); commitAvatar() }
         .sheet(isPresented: $showingTerminalSettings) { ProjectSettingsSheet(model: model, project: project) }
     }
 }

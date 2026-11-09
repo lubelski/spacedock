@@ -12,6 +12,13 @@ struct Project: Codable {
     var settings: SettingsOverride? = nil
     /// Raw Ghostty config keys for this project, merged over the global map.
     var ghostty: [String: String]? = nil
+    /// Up to three characters drawn on the icon. Nil uses `Project.initials(name)`.
+    var avatar: String? = nil
+    /// An image for the icon, a copy under `images/` in the support directory.
+    /// Wins over the letters. A missing file falls back to the letters.
+    var image: String? = nil
+    /// How the image sits in the icon. Nil means `.framed`.
+    var imageStyle: IconImageStyle? = nil
 
     static let bundleIDPrefix = "dev.lubelski.spacedock"
 
@@ -21,6 +28,48 @@ struct Project: Codable {
     var displayName: String { name + Profile.current.nameSuffix }
 
     var color: NSColor { NSColor(hex: colorHex) ?? .systemBlue }
+
+    /// The letters on the icon: the manual avatar, or initials of the name.
+    var avatarText: String {
+        if let a = avatar?.trimmingCharacters(in: .whitespaces), !a.isEmpty { return a }
+        return Project.initials(name)
+    }
+
+    /// What the icon shows: the image when it loads, the letters otherwise.
+    var iconContent: IconContent {
+        if let image, let picture = NSImage(contentsOfFile: image) {
+            return .image(picture, imageStyle ?? .framed)
+        }
+        return .text(avatarText)
+    }
+
+    static let avatarLimit = 3
+
+    /// Up to three letters for the icon. Each word of a multi-word name
+    /// gives its first letter: "machine-configuration-notes" is MCN,
+    /// "SpaceDock" is SD. A one-word name of three characters or fewer is
+    /// used whole ("Tau" is TAU). A longer single word gives its first
+    /// letter. Words split on anything that is not a letter or digit, on a
+    /// lowercase-to-uppercase step, and between letters and digits.
+    static func initials(_ name: String) -> String {
+        var words: [String] = []
+        for chunk in name.split(whereSeparator: { !$0.isLetter && !$0.isNumber }) {
+            var word = ""
+            var prev: Character?
+            for ch in chunk {
+                if let p = prev, (p.isLowercase && ch.isUppercase) || (p.isLetter != ch.isLetter) {
+                    words.append(word); word = ""
+                }
+                word.append(ch); prev = ch
+            }
+            if !word.isEmpty { words.append(word) }
+        }
+        guard let first = words.first else { return "?" }
+        if words.count == 1 {
+            return first.count <= avatarLimit ? first.uppercased() : String(first.prefix(1)).uppercased()
+        }
+        return words.prefix(avatarLimit).map { String($0.prefix(1)) }.joined().uppercased()
+    }
 
     var folderURL: URL { URL(fileURLWithPath: (folder as NSString).expandingTildeInPath) }
 
@@ -60,6 +109,21 @@ struct Project: Codable {
         let collapsed = String(scalars).split(separator: "-", omittingEmptySubsequences: true).joined(separator: "-")
         return collapsed.isEmpty ? "project" : collapsed
     }
+}
+
+/// How a custom image sits in the project icon.
+enum IconImageStyle: String, Codable, CaseIterable {
+    /// The image on a light rounded plate inside the project-color squircle,
+    /// so the color frames it whatever the image looks like.
+    case framed
+    /// The image fills the squircle, with a ring of the project color at the edge.
+    case fill
+}
+
+/// What a project icon draws inside the squircle.
+enum IconContent {
+    case text(String)
+    case image(NSImage, IconImageStyle)
 }
 
 extension NSColor {
