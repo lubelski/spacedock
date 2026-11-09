@@ -44,6 +44,59 @@ struct Registry: Codable {
         projects.sort { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
     }
 
+    /// `base`, or `base-2`, `base-3`, ... if another project has it.
+    func uniqueSlug(_ base: String, excluding: String? = nil) -> String {
+        var slug = base, n = 2
+        while projects.contains(where: { $0.slug == slug && $0.slug != excluding }) {
+            slug = "\(base)-\(n)"; n += 1
+        }
+        return slug
+    }
+
+    /// Registers a placeholder project, "New Project" with an unused color
+    /// and no folder, and saves. It cannot launch until a folder is chosen.
+    mutating func addNew() throws -> Project {
+        var name = "New Project", n = 2
+        while projects.contains(where: { $0.name == name }) { name = "New Project \(n)"; n += 1 }
+        let used = Set(projects.map { $0.colorHex.uppercased() })
+        let color = Project.palette.first { !used.contains($0) } ?? Project.palette[projects.count % Project.palette.count]
+        let p = Project(name: name, slug: uniqueSlug(Project.slugify(name)), colorHex: color, folder: "")
+        upsert(p)
+        try save()
+        return p
+    }
+
+    /// Applies `change` to the project with `slug`, saves, and keeps its
+    /// bundle in step. The slug follows the name until the project's bundle
+    /// is first installed; after that it stays fixed, because the bundle id
+    /// (and any Space assignment) derives from it. A renamed bundle is moved
+    /// by deleting the old one. A launchable project's bundle is rewritten;
+    /// one with problems keeps whatever bundle it had.
+    @discardableResult
+    mutating func edit(slug: String, _ change: (inout Project) -> Void) throws -> Project {
+        guard let old = project(slug: slug) else { throw "no project with slug \(slug)" }
+        var p = old
+        change(&p)
+        p.name = p.name.trimmingCharacters(in: .whitespaces)
+        if !p.folder.isEmpty {
+            p.folder = URL(fileURLWithPath: (p.folder as NSString).expandingTildeInPath).standardizedFileURL.path
+        }
+        let oldApp = Registry.appURL(for: old)
+        let installed = FileManager.default.fileExists(atPath: oldApp.path)
+        if p.name != old.name, !installed, !p.name.isEmpty {
+            p.slug = uniqueSlug(Project.slugify(p.name), excluding: old.slug)
+        }
+        projects.removeAll { $0.slug == old.slug }
+        upsert(p)
+        try save()
+        if installed, Registry.appURL(for: p) != oldApp { try? FileManager.default.removeItem(at: oldApp) }
+        if p.isLaunchable {
+            try FileManager.default.createDirectory(at: Registry.installDirectory, withIntermediateDirectories: true)
+            _ = try Generator.generate(project: p, outputDirectory: Registry.installDirectory)
+        }
+        return p
+    }
+
     @discardableResult
     mutating func remove(slug: String) -> Project? {
         guard let p = project(slug: slug) else { return nil }
