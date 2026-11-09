@@ -12,6 +12,8 @@ final class ProjectsModel: ObservableObject {
     @Published var settings = Settings()
     @Published var running: Set<String> = []   // bundle ids
     @Published var lastError: String?
+    /// A project the panel should select, set by `--edit SLUG`.
+    @Published var requestedSelection: String?
 
     private var observers: [NSObjectProtocol] = []
 
@@ -53,6 +55,10 @@ final class ProjectsModel: ObservableObject {
             app.activate()
             return
         }
+        guard p.isLaunchable else {
+            lastError = "\(p.name.isEmpty ? p.slug : p.name): \(p.problems.joined(separator: ", "))"
+            return
+        }
         let url = Registry.appURL(for: p)
         if !FileManager.default.fileExists(atPath: url.path) {
             do { _ = try Generator.generate(project: p, outputDirectory: Registry.installDirectory) }
@@ -91,6 +97,7 @@ final class ProjectsModel: ObservableObject {
     }
 
     func regenerate(_ p: Project) {
+        guard p.isLaunchable else { return }
         do { _ = try Generator.generate(project: p, outputDirectory: Registry.installDirectory) }
         catch { lastError = "\(p.name): \(error)" }
     }
@@ -100,26 +107,29 @@ final class ProjectsModel: ObservableObject {
     func regenerateAll() {
         do {
             _ = try Generator.generatePrime(outputDirectory: Registry.primeDirectory)
-            for p in registry.projects { _ = try Generator.generate(project: p, outputDirectory: Registry.installDirectory) }
+            for p in registry.projects where p.isLaunchable {
+                _ = try Generator.generate(project: p, outputDirectory: Registry.installDirectory)
+            }
         } catch { lastError = "regenerate: \(error)" }
     }
 
-    func add(name: String, colorHex: String, folder: String) {
-        let trimmed = name.trimmingCharacters(in: .whitespaces)
-        guard !trimmed.isEmpty else { lastError = "name is required"; return }
-        guard NSColor(hex: colorHex) != nil else { lastError = "color must be #RRGGBB"; return }
-        let absolute = URL(fileURLWithPath: (folder as NSString).expandingTildeInPath).standardizedFileURL.path
-        let p = Project(name: trimmed, slug: Project.slugify(trimmed), colorHex: colorHex, folder: absolute)
-        registry.upsert(p)
-        save()
-        regenerate(p)
-        refreshRunning()
+    /// Registers a placeholder row and returns its slug for selection.
+    func addNew() -> String? {
+        do { return try registry.addNew().slug } catch { lastError = "projects.json: \(error)"; return nil }
     }
 
-    func update(_ p: Project) {
-        registry.upsert(p)
-        save()
-        regenerate(p)
+    /// Renames, recolors, or moves a project. Returns the slug after the
+    /// edit, which changes on rename until the bundle is first installed.
+    @discardableResult
+    func edit(_ slug: String, _ change: (inout Project) -> Void) -> String? {
+        do {
+            let p = try registry.edit(slug: slug, change)
+            refreshRunning()
+            return p.slug
+        } catch {
+            lastError = "\(slug): \(error)"
+            return nil
+        }
     }
 
     func remove(_ p: Project) {
@@ -188,8 +198,13 @@ final class PrimeDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         editItem.submenu = editMenu
         mainMenu.addItem(editItem)
         NSApp.mainMenu = mainMenu
-        if CommandLine.arguments.contains(where: { $0.hasPrefix("--settings") }) { showSettings() }
-        else if CommandLine.arguments.contains("--panel") { showPanel() }
+        let args = CommandLine.arguments
+        if args.contains(where: { $0.hasPrefix("--settings") }) { showSettings() }
+        else if let i = args.firstIndex(of: "--edit"), i + 1 < args.count {
+            model.requestedSelection = args[i + 1]
+            showPanel()
+        }
+        else if args.contains("--panel") { showPanel() }
     }
 
     /// Launching the app again (Finder, Spotlight, `open`) shows the panel.
@@ -220,7 +235,9 @@ final class PrimeDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             menu.addItem(withTitle: "No projects", action: nil, keyEquivalent: "")
         }
         for p in model.registry.projects {
-            let item = NSMenuItem(title: p.name, action: #selector(openProject(_:)), keyEquivalent: "")
+            // A project that cannot launch shows disabled (no action).
+            let action = p.isLaunchable || model.isRunning(p) ? #selector(openProject(_:)) : nil
+            let item = NSMenuItem(title: p.name, action: action, keyEquivalent: "")
             item.target = self
             item.representedObject = p.slug
             item.image = swatch(p.color, running: model.isRunning(p))
@@ -308,7 +325,7 @@ final class PrimeDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     @objc func showPanel() {
         if panel == nil {
-            let w = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 520, height: 560),
+            let w = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 820, height: 560),
                              styleMask: [.titled, .closable, .miniaturizable, .resizable],
                              backing: .buffered, defer: false)
             w.title = "Spacedock" + Profile.current.nameSuffix
@@ -320,7 +337,8 @@ final class PrimeDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 let f = screen.visibleFrame
                 w.setFrameOrigin(NSPoint(x: f.midX - w.frame.width / 2, y: f.midY - w.frame.height / 2))
             }
-            w.setFrameAutosaveName("control-panel")
+            // New name: the old saved frame was too narrow for the edit pane.
+            w.setFrameAutosaveName("control-panel-2")
             panel = w
         }
         model.reload()
@@ -335,14 +353,26 @@ final class PrimeDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
 // MARK: - Project management
 
-/// A vertical list of projects with running state and per-project actions.
-/// The gear opens the separate settings window; nothing about shared
-/// settings lives here.
+/// The project list beside an edit pane for the selected project. `+`
+/// registers a placeholder row and selects it, so the pane opens on it.
+/// The gear opens the separate settings window.
 struct ControlPanelView: View {
     @ObservedObject var model: ProjectsModel
-    @State private var adding = false
+    @State private var selection: String?
 
     var showSettings: () -> Void
+
+    private var selected: Project? { selection.flatMap { model.registry.project(slug: $0) } }
+
+    private func takeRequestedSelection() {
+        guard let slug = model.requestedSelection else { return }
+        selection = slug
+        model.requestedSelection = nil
+    }
+
+    private func addProject() {
+        if let slug = model.addNew() { selection = slug }
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -351,9 +381,9 @@ struct ControlPanelView: View {
                 Text("\(model.registry.projects.count)")
                     .font(.callout.monospacedDigit()).foregroundStyle(.secondary)
                 Spacer()
-                Button { adding = true } label: { Label("Add Project", systemImage: "plus") }
+                Button(action: addProject) { Label("New Project", systemImage: "plus") }
                     .keyboardShortcut("n", modifiers: .command)
-                    .help("Register a project and install its app")
+                    .help("Add a project row and edit it")
                 Menu {
                     Button("Regenerate All") { model.regenerateAll() }
                         .help("Rewrite every bundle from the installed binary. Running apps pick it up on restart.")
@@ -372,27 +402,50 @@ struct ControlPanelView: View {
 
             Divider()
 
-            if model.registry.projects.isEmpty {
-                VStack(spacing: 10) {
-                    Image(systemName: "square.grid.2x2").font(.system(size: 36)).foregroundStyle(.tertiary)
-                    Text("No projects yet").font(.headline)
-                    Text("Each project becomes its own app with a Dock tile, a Cmd-Tab entry, and a Space.")
-                        .font(.callout).foregroundStyle(.secondary).multilineTextAlignment(.center)
-                    Button("Add Project…") { adding = true }.padding(.top, 4)
+            HStack(spacing: 0) {
+                Group {
+                    if model.registry.projects.isEmpty {
+                        VStack(spacing: 10) {
+                            Image(systemName: "square.grid.2x2").font(.system(size: 36)).foregroundStyle(.tertiary)
+                            Text("No projects yet").font(.headline)
+                            Text("Each project becomes its own app with a Dock tile, a Cmd-Tab entry, and a Space.")
+                                .font(.callout).foregroundStyle(.secondary).multilineTextAlignment(.center)
+                            Button("New Project", action: addProject).padding(.top, 4)
+                        }
+                        .frame(maxWidth: 320, maxHeight: .infinity)
+                        .frame(maxWidth: .infinity)
+                    } else {
+                        List(selection: $selection) {
+                            ForEach(model.registry.projects, id: \.slug) { p in
+                                ProjectRow(model: model, project: p)
+                                    .tag(p.slug)
+                                    .listRowSeparator(.visible)
+                            }
+                        }
+                        .listStyle(.inset)
+                        .scrollContentBackground(.hidden)
+                    }
                 }
-                .frame(maxWidth: 320, maxHeight: .infinity)
-                .frame(maxWidth: .infinity)
-            } else {
-                List(model.registry.projects, id: \.slug) { p in
-                    ProjectRow(model: model, project: p)
-                        .listRowSeparator(.visible)
+                .frame(minWidth: 440, maxWidth: .infinity, maxHeight: .infinity)
+
+                Divider()
+
+                Group {
+                    if let p = selected {
+                        ProjectEditor(model: model, project: p, selection: $selection).id(p.slug)
+                    } else {
+                        Text("Select a project to edit it")
+                            .font(.callout).foregroundStyle(.secondary)
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    }
                 }
-                .listStyle(.inset)
-                .scrollContentBackground(.hidden)
+                .frame(width: 330)
+                .frame(maxHeight: .infinity)
             }
         }
-        .frame(minWidth: 460, minHeight: 360)
-        .sheet(isPresented: $adding) { AddProjectSheet(model: model) }
+        .frame(minWidth: 780, minHeight: 380)
+        .onAppear(perform: takeRequestedSelection)
+        .onChange(of: model.requestedSelection) { _, _ in takeRequestedSelection() }
         .overlay(alignment: .bottom) {
             if let err = model.lastError {
                 HStack {
@@ -412,7 +465,6 @@ struct ControlPanelView: View {
 struct ProjectRow: View {
     @ObservedObject var model: ProjectsModel
     let project: Project
-    @State private var editing = false
 
     private var running: Bool { model.isRunning(project) }
 
@@ -427,9 +479,14 @@ struct ProjectRow: View {
             }
             .help(running ? "Running" : "Stopped")
             VStack(alignment: .leading, spacing: 2) {
-                Text(project.name).font(.headline)
-                Text(project.folder.replacingOccurrences(of: NSHomeDirectory(), with: "~"))
-                    .font(.caption).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
+                Text(project.name.isEmpty ? "Untitled" : project.name).font(.headline)
+                if let problem = project.problems.first {
+                    Label(problem, systemImage: "exclamationmark.triangle.fill")
+                        .font(.caption).foregroundStyle(.orange).lineLimit(1)
+                } else {
+                    Text(project.folder.replacingOccurrences(of: NSHomeDirectory(), with: "~"))
+                        .font(.caption).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
+                }
             }
             Spacer()
             Text(running ? "Running" : "Stopped")
@@ -439,12 +496,11 @@ struct ProjectRow: View {
                 .background((running ? Color.green : Color.secondary).opacity(0.12), in: Capsule())
             Button(running ? "Show" : "Launch") { model.open(project) }
                 .frame(width: 64)
+                .disabled(!running && !project.isLaunchable)
             Menu {
-                Button("Project Settings…") { editing = true }
-                Divider()
-                Button("Restart") { model.restart(project) }
+                Button("Restart") { model.restart(project) }.disabled(!project.isLaunchable)
                 Button("Quit") { model.quit(project) }.disabled(!running)
-                Button("Regenerate") { model.regenerate(project) }
+                Button("Regenerate") { model.regenerate(project) }.disabled(!project.isLaunchable)
                 Divider()
                 Button("Reveal in Finder") {
                     NSWorkspace.shared.activateFileViewerSelecting([Registry.appURL(for: project)])
@@ -452,13 +508,114 @@ struct ProjectRow: View {
                 Button("Open Folder in Finder") {
                     NSWorkspace.shared.open(URL(fileURLWithPath: project.folder))
                 }
+                .disabled(project.folder.isEmpty)
                 Divider()
                 Button("Remove", role: .destructive) { model.remove(project) }
             } label: { Image(systemName: "ellipsis.circle") }
             .menuStyle(.borderlessButton).frame(width: 28)
         }
         .padding(.vertical, 6)
-        .sheet(isPresented: $editing) { ProjectSettingsSheet(model: model, project: project) }
+    }
+}
+
+/// Name, color, and folder of one project, saved as they change: the name
+/// on Return or when the field loses focus, the color after the picker
+/// settles, the folder when chosen. Terminal overrides stay in their sheet.
+struct ProjectEditor: View {
+    @ObservedObject var model: ProjectsModel
+    let project: Project
+    @Binding var selection: String?
+    @State private var name: String
+    @State private var color: Color
+    @State private var colorCommit: Task<Void, Never>?
+    @State private var showingTerminalSettings = false
+    @FocusState private var nameFocused: Bool
+
+    init(model: ProjectsModel, project: Project, selection: Binding<String?>) {
+        self.model = model
+        self.project = project
+        _selection = selection
+        _name = State(initialValue: project.name)
+        _color = State(initialValue: Color(nsColor: project.color))
+    }
+
+    /// Applies an edit and follows the slug if a rename changed it.
+    private func commit(_ change: (inout Project) -> Void) {
+        if let slug = model.edit(project.slug, change), slug != project.slug { selection = slug }
+    }
+
+    private func commitName() {
+        guard name.trimmingCharacters(in: .whitespaces) != project.name else { return }
+        commit { $0.name = name }
+    }
+
+    private func chooseFolder() {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.prompt = "Choose"
+        panel.directoryURL = project.folder.isEmpty
+            ? URL(fileURLWithPath: NSHomeDirectory() + "/dev")
+            : project.folderURL
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        // A placeholder name gives way to the folder's name.
+        let rename = project.name.hasPrefix("New Project") && name == project.name
+        if rename { name = url.lastPathComponent }
+        commit { p in
+            p.folder = url.path
+            if rename { p.name = url.lastPathComponent }
+        }
+    }
+
+    var body: some View {
+        Form {
+            Section("Project") {
+                TextField("Name", text: $name)
+                    .focused($nameFocused)
+                    .onSubmit(commitName)
+                ColorPicker("Color", selection: $color, supportsOpacity: false)
+                LabeledContent("Folder") {
+                    HStack(spacing: 6) {
+                        Text(project.folder.isEmpty ? "None" : project.folder.replacingOccurrences(of: NSHomeDirectory(), with: "~"))
+                            .foregroundStyle(project.folder.isEmpty ? .secondary : .primary)
+                            .lineLimit(1).truncationMode(.middle)
+                            .help(project.folder)
+                        Button("Choose…", action: chooseFolder)
+                    }
+                }
+            }
+            if !project.problems.isEmpty {
+                Section {
+                    ForEach(project.problems, id: \.self) { problem in
+                        Label(problem, systemImage: "exclamationmark.triangle.fill").foregroundStyle(.orange)
+                    }
+                } footer: {
+                    Text("The project stays in the list. It cannot launch until this is fixed.")
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
+            }
+            Section {
+                Button("Terminal Settings…") { showingTerminalSettings = true }
+            } footer: {
+                Text(model.isRunning(project)
+                     ? "Running. Name, color, and folder changes apply when the app next launches."
+                     : "Changes save as you make them.")
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
+        .formStyle(.grouped)
+        .onChange(of: nameFocused) { _, focused in if !focused { commitName() } }
+        .onChange(of: color) { _, newColor in
+            colorCommit?.cancel()
+            let hex = NSColor(newColor).hexString
+            colorCommit = Task {
+                try? await Task.sleep(for: .milliseconds(400))
+                guard !Task.isCancelled, hex != project.colorHex.uppercased() else { return }
+                commit { $0.colorHex = hex }
+            }
+        }
+        .onDisappear(perform: commitName)
+        .sheet(isPresented: $showingTerminalSettings) { ProjectSettingsSheet(model: model, project: project) }
     }
 }
 
@@ -562,43 +719,6 @@ enum GhosttyKeyText {
 }
 
 extension String: @retroactive Error {}
-
-struct AddProjectSheet: View {
-    @ObservedObject var model: ProjectsModel
-    @Environment(\.dismiss) private var dismiss
-    @State private var name = ""
-    @State private var color = Color(nsColor: NSColor(hex: "#3B82F6")!)
-    @State private var folder = NSHomeDirectory() + "/dev"
-
-    var body: some View {
-        Form {
-            TextField("Name", text: $name)
-            ColorPicker("Color", selection: $color, supportsOpacity: false)
-            HStack {
-                TextField("Folder", text: $folder)
-                Button("Choose…") {
-                    let panel = NSOpenPanel()
-                    panel.canChooseDirectories = true
-                    panel.canChooseFiles = false
-                    panel.directoryURL = URL(fileURLWithPath: (folder as NSString).expandingTildeInPath)
-                    if panel.runModal() == .OK, let url = panel.url { folder = url.path }
-                }
-            }
-            HStack {
-                Spacer()
-                Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction)
-                Button("Add") {
-                    model.add(name: name, colorHex: NSColor(color).hexString, folder: folder)
-                    dismiss()
-                }
-                .keyboardShortcut(.defaultAction)
-                .disabled(name.trimmingCharacters(in: .whitespaces).isEmpty)
-            }
-        }
-        .padding()
-        .frame(width: 420)
-    }
-}
 
 extension NSColor {
     var hexString: String {
