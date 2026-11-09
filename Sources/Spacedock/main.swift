@@ -10,9 +10,15 @@ import Foundation
 //       registers a placeholder, "New Project" with no folder, and prints
 //       its slug. It cannot launch until `edit` gives it a folder.
 //   Spacedock edit SLUG [--name NAME] [--color #RRGGBB] [--folder PATH]
+//                       [--avatar ABC] [--image PATH] [--image-style framed|fill]
 //       renames, recolors, or moves a project and rewrites its bundle when
 //       the result can launch. The slug follows the name until the bundle
 //       is first installed, then stays fixed. `--folder ""` clears it.
+//       `--avatar` sets up to three characters for the icon in place of the
+//       initials of the name. `--image` copies an image into the support
+//       directory and draws it in the icon instead of letters: framed on a
+//       light plate (default) or filling the icon. An empty value clears
+//       either one.
 //   Spacedock set SLUG KEY=VALUE ...
 //   Spacedock set --global KEY=VALUE ...
 //       per-project or global settings. KEY is fontName, fontSize, padding,
@@ -61,6 +67,7 @@ func usage() -> Never {
       Spacedock add --name NAME [--color #RRGGBB] [--folder PATH] [--set KEY=VALUE ...] [--ghostty KEY=VALUE ...]
       Spacedock new
       Spacedock edit SLUG [--name NAME] [--color #RRGGBB] [--folder PATH]
+                          [--avatar ABC] [--image PATH] [--image-style framed|fill]
       Spacedock set SLUG KEY=VALUE ...
       Spacedock set --global KEY=VALUE ...
       Spacedock show SLUG
@@ -125,6 +132,13 @@ func describe(_ s: Settings) -> String {
     ]
     for (k, v) in s.ghostty.sorted(by: { $0.key < $1.key }) { lines.append("ghostty.\(k)\t\(v)") }
     return lines.joined(separator: "\n")
+}
+
+/// One line naming what the project's icon draws.
+func iconSummary(_ p: Project) -> String {
+    guard let image = p.image else { return "icon\tletters \(p.avatarText)\(p.avatar == nil ? " (initials)" : "")" }
+    let missing = FileManager.default.fileExists(atPath: image) ? "" : " (missing, letters \(p.avatarText) instead)"
+    return "icon\timage \((p.imageStyle ?? .framed).rawValue) \(image)\(missing)"
 }
 
 func install(_ project: Project) throws -> URL {
@@ -196,25 +210,39 @@ do {
         var rest = Array(args.dropFirst())
         guard !rest.isEmpty else { usage() }
         let slug = rest.removeFirst()
-        var name: String?, color: String?, folder: String?
+        var name: String?, color: String?, folder: String?, avatar: String?, image: String?, style: IconImageStyle?
         var it = rest.makeIterator()
         while let a = it.next() {
             switch a {
             case "--name": guard let v = it.next() else { usage() }; name = v
             case "--color": guard let v = it.next() else { usage() }; color = v
             case "--folder": guard let v = it.next() else { usage() }; folder = v
+            case "--avatar": guard let v = it.next() else { usage() }; avatar = v
+            case "--image": guard let v = it.next() else { usage() }; image = v
+            case "--image-style":
+                guard let v = it.next() else { usage() }
+                guard let s = IconImageStyle(rawValue: v) else { fail("bad image style \(v); use framed or fill", status: 64) }
+                style = s
             default: usage()
             }
         }
         if let color, NSColor(hex: color) == nil { fail("bad color \(color); use #RRGGBB", status: 64) }
+        if let avatar, avatar.trimmingCharacters(in: .whitespaces).count > Project.avatarLimit {
+            fail("avatar \(avatar) is longer than \(Project.avatarLimit) characters", status: 64)
+        }
         var registry = try Registry.load()
         guard registry.project(slug: slug) != nil else { fail("no project with slug \(slug)") }
+        let imported = try image.map { $0.isEmpty ? "" : try Registry.importImage($0) }
         let p = try registry.edit(slug: slug) { p in
             if let name { p.name = name }
             if let color { p.colorHex = color.uppercased() }
             if let folder { p.folder = folder }
+            if let avatar { p.avatar = avatar }
+            if let imported { p.image = imported }
+            if let style { p.imageStyle = style }
         }
         print("\(p.slug)\t\(p.colorHex)\t\(p.folder)\t\(p.name)")
+        print(iconSummary(p))
         for problem in p.problems { print("cannot launch: \(problem)") }
         exit(0)
 
@@ -300,6 +328,7 @@ do {
         let registry = try Registry.load()
         guard let p = registry.project(slug: slug) else { fail("no project with slug \(slug)") }
         print("\(p.name)\t\(p.colorHex)\t\(p.folder)")
+        print(iconSummary(p))
         for problem in p.problems { print("cannot launch: \(problem)") }
         print(describe(Settings.load().applying(p.settings, ghostty: p.ghostty)))
         exit(0)

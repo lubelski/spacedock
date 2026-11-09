@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 
 /// The list of registered projects and where their bundles live.
@@ -16,6 +17,29 @@ struct Registry: Codable {
     /// registered project named Spacedock does not collide with it.
     static var primeDirectory: URL { Profile.current.primeDirectory }
     static var primeAppURL: URL { primeDirectory.appendingPathComponent("Spacedock\(Profile.current.nameSuffix).app") }
+
+    /// Copies of project images. The registry points here, so moving or
+    /// deleting the original does not change the icon.
+    static var imagesDirectory: URL { supportDirectory.appendingPathComponent("images") }
+
+    /// Copies an image file into `imagesDirectory` and returns the copy's path.
+    static func importImage(_ path: String) throws -> String {
+        let source = URL(fileURLWithPath: (path as NSString).expandingTildeInPath)
+        guard NSImage(contentsOf: source) != nil else { throw "\(path) is not an image macOS can read" }
+        try FileManager.default.createDirectory(at: imagesDirectory, withIntermediateDirectories: true)
+        let ext = source.pathExtension.isEmpty ? "png" : source.pathExtension.lowercased()
+        let copy = imagesDirectory.appendingPathComponent("\(UUID().uuidString).\(ext)")
+        try FileManager.default.copyItem(at: source, to: copy)
+        return copy.path
+    }
+
+    /// Deletes an image copy once no project uses it. Leaves files outside
+    /// `imagesDirectory` alone.
+    func discardImage(_ path: String?) {
+        guard let path, path.hasPrefix(Registry.imagesDirectory.path + "/"),
+              !projects.contains(where: { $0.image == path }) else { return }
+        try? FileManager.default.removeItem(atPath: path)
+    }
 
     static func appURL(for project: Project) -> URL {
         installDirectory.appendingPathComponent("\(project.displayName).app")
@@ -78,6 +102,11 @@ struct Registry: Codable {
         var p = old
         change(&p)
         p.name = p.name.trimmingCharacters(in: .whitespaces)
+        if let a = p.avatar?.trimmingCharacters(in: .whitespaces) {
+            guard a.count <= Project.avatarLimit else { throw "avatar \"\(a)\" is longer than \(Project.avatarLimit) characters" }
+            p.avatar = a.isEmpty ? nil : a
+        }
+        if p.image?.isEmpty == true { p.image = nil }
         if !p.folder.isEmpty {
             p.folder = URL(fileURLWithPath: (p.folder as NSString).expandingTildeInPath).standardizedFileURL.path
         }
@@ -89,6 +118,7 @@ struct Registry: Codable {
         projects.removeAll { $0.slug == old.slug }
         upsert(p)
         try save()
+        if old.image != p.image { discardImage(old.image) }
         if installed, Registry.appURL(for: p) != oldApp { try? FileManager.default.removeItem(at: oldApp) }
         if p.isLaunchable {
             try FileManager.default.createDirectory(at: Registry.installDirectory, withIntermediateDirectories: true)
@@ -101,6 +131,7 @@ struct Registry: Codable {
     mutating func remove(slug: String) -> Project? {
         guard let p = project(slug: slug) else { return nil }
         projects.removeAll { $0.slug == slug }
+        discardImage(p.image)
         return p
     }
 }
